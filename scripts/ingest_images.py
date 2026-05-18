@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Protocol
 
 from PIL import Image, ImageOps
 from qdrant_client import QdrantClient
@@ -20,8 +20,14 @@ from picca_search.infrastructure.embedding_models import (
 from picca_search.infrastructure.qdrant_index import QdrantImageIndex
 from picca_search.infrastructure.vision_language_models import (
     Florence2Captioner,
+    MarianMtEnJapTranslator,
     PaddleOcrVlTextExtractor,
+    TranslatedCaptioner,
 )
+
+
+class _ImageCaptioner(Protocol):
+    def caption(self, image_path: Path) -> str: ...
 
 DEVICE_CHOICES = ("cuda", "mps", "cpu")
 
@@ -141,7 +147,7 @@ def ingest_image(
     *,
     image_path: Path,
     ocr_text_extractor: PaddleOcrVlTextExtractor,
-    image_captioner: Florence2Captioner,
+    image_captioner: _ImageCaptioner,
     image_dense_encoder: WaonSiglipEncoder,
     sparse_encoder: SpladeJapaneseSparseEncoder,
     image_index: QdrantImageIndex,
@@ -161,7 +167,7 @@ def ingest_images(
     *,
     image_paths: list[Path],
     ocr_text_extractor: PaddleOcrVlTextExtractor,
-    image_captioner: Florence2Captioner,
+    image_captioner: _ImageCaptioner,
     image_dense_encoder: WaonSiglipEncoder,
     sparse_encoder: SpladeJapaneseSparseEncoder,
     image_index: QdrantImageIndex,
@@ -212,6 +218,7 @@ def main() -> None:
     parser.add_argument("--dense-device", choices=DEVICE_CHOICES)
     parser.add_argument("--sparse-device", choices=DEVICE_CHOICES)
     parser.add_argument("--caption-device", choices=DEVICE_CHOICES)
+    parser.add_argument("--translator-device", choices=DEVICE_CHOICES)
     parser.add_argument("--ocr-device", choices=DEVICE_CHOICES)
     parser.add_argument("--batch-size", type=int, default=16)
     args = parser.parse_args()
@@ -228,12 +235,14 @@ def main() -> None:
     sparse_encoder = SpladeJapaneseSparseEncoder(device=args.sparse_device)
     ocr_text_extractor = PaddleOcrVlTextExtractor(device=args.ocr_device)
     image_captioner = Florence2Captioner(device=args.caption_device)
+    caption_translator = MarianMtEnJapTranslator(device=args.translator_device)
+    translated_captioner = TranslatedCaptioner(image_captioner, caption_translator)
     index = QdrantImageIndex(QdrantClient(url=args.qdrant_url), args.collection)
 
     ingest_images(
         image_paths=images,
         ocr_text_extractor=ocr_text_extractor,
-        image_captioner=image_captioner,
+        image_captioner=translated_captioner,
         image_dense_encoder=dense_encoder,
         sparse_encoder=sparse_encoder,
         image_index=index,

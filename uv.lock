@@ -1216,6 +1216,7 @@ dev = [
 vision = [
     { name = "paddleocr", extra = ["doc-parser"] },
     { name = "paddlepaddle" },
+    { name = "sentencepiece" },
 ]
 
 [package.metadata]
@@ -1234,6 +1235,7 @@ dev = [{ name = "pytest", specifier = ">=8.0.0" }]
 vision = [
     { name = "paddleocr", extras = ["doc-parser"], specifier = ">=3.3.0" },
     { name = "paddlepaddle", specifier = ">=3.3.1" },
+    { name = "sentencepiece", specifier = ">=0.2.0" },
 ]
 
 [[package]]
