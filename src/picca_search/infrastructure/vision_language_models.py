@@ -17,7 +17,7 @@ from picca_search.infrastructure.transformers_compat import (
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
 FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
 FLORENCE2_MORE_DETAILED_CAPTION = "<MORE_DETAILED_CAPTION>"
-MARIAN_MT_EN_JAP_MODEL = "Helsinki-NLP/opus-mt-en-jap"
+MARIAN_MT_EN_JAP_MODEL = "staka/fugumt-en-ja"
 
 
 class PaddleOcrVlTextExtractor:
@@ -49,6 +49,7 @@ class MarianMtEnJapTranslator:
         model_name: str = MARIAN_MT_EN_JAP_MODEL,
         device: str | None = None,
     ) -> None:
+        import pysbd
         import torch
 
         MarianMTModel, MarianTokenizer = import_transformers_symbols(
@@ -70,29 +71,40 @@ class MarianMtEnJapTranslator:
             self.device, self.torch_dtype
         )
         self.model.eval()
+        self.segmenter = pysbd.Segmenter(language="en", clean=False)
 
     def translate(self, text: str) -> str:
         if not text.strip():
             return ""
-        inputs = self.tokenizer(
-            text,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=512,
-        ).to(self.device)
-        with self.torch.no_grad():
-            generated_ids = self.model.generate(
-                **inputs,
+        sentences = [
+            s.strip()
+            for s in self.segmenter.segment(text)
+            if s.strip()
+        ]
+        if not sentences:
+            return ""
+        translated_parts: list[str] = []
+        for sentence in sentences:
+            inputs = self.tokenizer(
+                sentence,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
                 max_length=512,
-                num_beams=4,
-                early_stopping=True,
-            )
-        translated = self.tokenizer.batch_decode(
-            generated_ids,
-            skip_special_tokens=True,
-        )[0]
-        return translated.strip()
+            ).to(self.device)
+            with self.torch.no_grad():
+                generated_ids = self.model.generate(
+                    **inputs,
+                    max_length=512,
+                    num_beams=4,
+                    early_stopping=True,
+                )
+            translated = self.tokenizer.batch_decode(
+                generated_ids,
+                skip_special_tokens=True,
+            )[0]
+            translated_parts.append(translated.strip())
+        return "".join(translated_parts)
 
 
 class Florence2Captioner:

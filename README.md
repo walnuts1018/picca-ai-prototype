@@ -15,7 +15,7 @@ docker compose up -d qdrant
 
 画像ディレクトリ内の `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`, `.gif` を Qdrant に登録します。
 Sparse Vector 用テキストは、PaddleOCR-VL による OCR と Florence-2 による Caption を統合して作ります。
-Florence-2 は英語でキャプションを生成するため、Helsinki-NLP/opus-mt-en-jap で日本語に翻訳してから Sparse Encoder に入れます。
+Florence-2 は英語でキャプションを生成するため、staka/fugumt-en-ja で日本語に翻訳してから Sparse Encoder に入れます。
 推論前には EXIF Orientation を正規化します。長辺が 2048px を超える画像は ingest 時に推論用の一時ファイルへリサイズされます。透過画像と `.png` / `.bmp` は一時ファイルでも PNG を維持し、それ以外の非透過画像は JPEG に再エンコードします。元の画像ファイルと保存される画像パスはそのまま維持されます。
 
 ```bash
