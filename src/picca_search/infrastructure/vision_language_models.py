@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
+
+from picca_search.infrastructure.transformers_compat import (
+    OPTIONAL_PADDLEOCR_DISTRIBUTIONS,
+    OPTIONAL_PADDLEOCR_IMPORT_PROBES,
+    import_module_symbols,
+    import_transformers_symbols,
+)
 
 
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
@@ -17,7 +25,13 @@ class PaddleOcrVlTextExtractor:
         pipeline_version: str = PADDLE_OCR_VL_PIPELINE_VERSION,
         **pipeline_options: Any,
     ) -> None:
-        from paddleocr import PaddleOCRVL
+        (PaddleOCRVL,) = import_module_symbols(
+            "paddleocr",
+            "PaddleOCRVL",
+            hidden_import_packages=OPTIONAL_PADDLEOCR_IMPORT_PROBES,
+            hidden_distribution_names=OPTIONAL_PADDLEOCR_DISTRIBUTIONS,
+        )
+        _prepare_paddlex_dependency_checks_for_ocr()
 
         self.pipeline = PaddleOCRVL(pipeline_version=pipeline_version, **pipeline_options)
 
@@ -38,7 +52,11 @@ class Florence2Captioner:
         use_cache: bool = False,
     ) -> None:
         import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor
+
+        AutoModelForCausalLM, AutoProcessor = import_transformers_symbols(
+            "AutoModelForCausalLM",
+            "AutoProcessor",
+        )
 
         self.torch = torch
         self.device = device or (
@@ -134,3 +152,23 @@ def _walk_text_values(value: Any) -> list[str]:
         if hasattr(value, attribute):
             texts.extend(_walk_text_values(getattr(value, attribute)))
     return texts
+
+
+def _prepare_paddlex_dependency_checks_for_ocr() -> None:
+    deps = importlib.import_module("paddlex.utils.deps")
+    original_is_dep_available = getattr(
+        deps,
+        "_picca_original_is_dep_available",
+        deps.is_dep_available,
+    )
+
+    def is_dep_available(dep: str, /, check_version: bool = False) -> bool:
+        if dep in OPTIONAL_PADDLEOCR_DISTRIBUTIONS:
+            return True
+        return original_is_dep_available(dep, check_version=check_version)
+
+    deps._picca_original_is_dep_available = original_is_dep_available
+    deps.is_dep_available = is_dep_available
+
+    for cacheable in (original_is_dep_available, deps.is_extra_available):
+        cacheable.cache_clear()

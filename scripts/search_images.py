@@ -11,6 +11,8 @@ from picca_search.infrastructure.embedding_models import (
 )
 from picca_search.infrastructure.qdrant_index import QdrantImageIndex
 
+DEVICE_CHOICES = ("cuda", "mps", "cpu")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Search indexed images with Japanese text.")
@@ -18,10 +20,12 @@ def main() -> None:
     parser.add_argument("--qdrant-url", default="http://localhost:6333")
     parser.add_argument("--collection", default="picca_images")
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--dense-device", choices=DEVICE_CHOICES)
+    parser.add_argument("--sparse-device", choices=DEVICE_CHOICES)
     args = parser.parse_args()
 
-    dense_encoder = WaonSiglipEncoder()
-    sparse_encoder = SpladeJapaneseSparseEncoder()
+    dense_encoder = WaonSiglipEncoder(device=args.dense_device)
+    sparse_encoder = SpladeJapaneseSparseEncoder(device=args.sparse_device)
     index = QdrantImageIndex(QdrantClient(url=args.qdrant_url), args.collection)
 
     results = search_images(

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
+from PIL import Image, ImageOps
 from qdrant_client import QdrantClient
 
 from picca_search.application import ingest_image_with_extracted_text
@@ -17,12 +21,92 @@ from picca_search.infrastructure.vision_language_models import (
     PaddleOcrVlTextExtractor,
 )
 
+DEVICE_CHOICES = ("cuda", "mps", "cpu")
+
+
+@contextmanager
+def prepare_inference_image(image_path: Path) -> Iterator[Path]:
+    with Image.open(image_path) as image:
+        normalized_image = ImageOps.exif_transpose(image)
+        width, height = normalized_image.size
+        long_edge = max(width, height)
+        needs_orientation_normalization = _needs_orientation_normalization(image)
+        if long_edge <= 2048 and not needs_orientation_normalization:
+            yield image_path
+            return
+
+        output_image = normalized_image
+        if long_edge > 2048:
+            scale = 2048 / long_edge
+            resized_size = (
+                max(1, round(width * scale)),
+                max(1, round(height * scale)),
+            )
+            output_image = normalized_image.resize(resized_size, Image.Resampling.LANCZOS)
+
+        suffix, output_format = _select_output_format(image_path, normalized_image)
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+
+        try:
+            if output_format == "PNG":
+                output_image.save(temporary_path, format=output_format)
+            else:
+                output_image.convert("RGB").save(
+                    temporary_path,
+                    format=output_format,
+                    quality=90,
+                    optimize=True,
+                )
+            yield temporary_path
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _needs_orientation_normalization(image: Image.Image) -> bool:
+    orientation = image.getexif().get(274, 1)
+    return orientation != 1
+
+
+def _select_output_format(image_path: Path, image: Image.Image) -> tuple[str, str]:
+    has_alpha = "A" in image.getbands() or image.info.get("transparency") is not None
+    if has_alpha or image_path.suffix.lower() in {".png", ".bmp"}:
+        return ".png", "PNG"
+
+    return ".jpg", "JPEG"
+
+
+def ingest_image(
+    *,
+    image_path: Path,
+    ocr_text_extractor: PaddleOcrVlTextExtractor,
+    image_captioner: Florence2Captioner,
+    image_dense_encoder: WaonSiglipEncoder,
+    sparse_encoder: SpladeJapaneseSparseEncoder,
+    image_index: QdrantImageIndex,
+):
+    with prepare_inference_image(image_path) as inference_image_path:
+        return ingest_image_with_extracted_text(
+            image_path=image_path,
+            inference_image_path=inference_image_path,
+            ocr_text_extractor=ocr_text_extractor,
+            image_captioner=image_captioner,
+            image_dense_encoder=image_dense_encoder,
+            sparse_encoder=sparse_encoder,
+            image_index=image_index,
+        )
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest local images into Qdrant.")
     parser.add_argument("image_dir", type=Path, help="Directory containing image files.")
     parser.add_argument("--qdrant-url", default="http://localhost:6333")
     parser.add_argument("--collection", default="picca_images")
+    parser.add_argument("--dense-device", choices=DEVICE_CHOICES)
+    parser.add_argument("--sparse-device", choices=DEVICE_CHOICES)
+    parser.add_argument("--caption-device", choices=DEVICE_CHOICES)
+    parser.add_argument("--ocr-device", choices=DEVICE_CHOICES)
     args = parser.parse_args()
 
     images = sorted(
@@ -33,14 +117,14 @@ def main() -> None:
     if len(images) == 0:
         raise SystemExit(f"No supported images found in {args.image_dir}")
 
-    dense_encoder = WaonSiglipEncoder()
-    sparse_encoder = SpladeJapaneseSparseEncoder()
-    ocr_text_extractor = PaddleOcrVlTextExtractor()
-    image_captioner = Florence2Captioner()
+    dense_encoder = WaonSiglipEncoder(device=args.dense_device)
+    sparse_encoder = SpladeJapaneseSparseEncoder(device=args.sparse_device)
+    ocr_text_extractor = PaddleOcrVlTextExtractor(device=args.ocr_device)
+    image_captioner = Florence2Captioner(device=args.caption_device)
     index = QdrantImageIndex(QdrantClient(url=args.qdrant_url), args.collection)
 
     for image_path in images:
-        document = ingest_image_with_extracted_text(
+        document = ingest_image(
             image_path=image_path,
             ocr_text_extractor=ocr_text_extractor,
             image_captioner=image_captioner,

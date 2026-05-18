@@ -52,13 +52,17 @@ def ingest_image(
     image_dense_encoder: ImageDenseEncoder,
     sparse_encoder: SparseTextEncoder,
     image_index: ImageIndex,
+    inference_image_path: Path | None = None,
 ) -> ImageDocument:
     valid_path = ImagePath.create(image_path)
+    valid_inference_path = ImagePath.create(
+        inference_image_path if inference_image_path is not None else valid_path.value
+    )
     normalized_text = text.strip()
     document = ImageDocument.create(
         image_id=ImageId.from_path(valid_path.value),
         image_path=valid_path,
-        dense_vector=image_dense_encoder.encode_image(valid_path.value),
+        dense_vector=image_dense_encoder.encode_image(valid_inference_path.value),
         sparse_vector=sparse_encoder.encode_text(normalized_text),
         text=normalized_text,
     )
@@ -73,15 +77,20 @@ def ingest_image_with_extracted_text(
     image_dense_encoder: ImageDenseEncoder,
     sparse_encoder: SparseTextEncoder,
     image_index: ImageIndex,
+    inference_image_path: Path | None = None,
 ) -> ImageDocument:
     valid_path = ImagePath.create(image_path)
+    valid_inference_path = ImagePath.create(
+        inference_image_path if inference_image_path is not None else valid_path.value
+    )
     extracted_text = ExtractedImageText.create(
-        ocr_text=ocr_text_extractor.extract_text(valid_path.value),
-        caption=image_captioner.caption(valid_path.value),
+        ocr_text=ocr_text_extractor.extract_text(valid_inference_path.value),
+        caption=image_captioner.caption(valid_inference_path.value),
     )
     return ingest_image(
         image_path=valid_path.value,
         text=extracted_text.combined,
+        inference_image_path=valid_inference_path.value,
         image_dense_encoder=image_dense_encoder,
         sparse_encoder=sparse_encoder,
         image_index=image_index,

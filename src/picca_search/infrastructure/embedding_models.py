@@ -5,6 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 from picca_search.domain import DenseVector, SparseVector
+from picca_search.infrastructure.transformers_compat import import_transformers_symbols
 
 
 WAON_SIGLIP_MODEL = "llm-jp/waon-siglip2-base-patch16-256"
@@ -14,7 +15,8 @@ LIGHT_SPLADE_MODEL = "bizreach-inc/light-splade-japanese-28M"
 class WaonSiglipEncoder:
     def __init__(self, model_name: str = WAON_SIGLIP_MODEL, device: str | None = None) -> None:
         import torch
-        from transformers import AutoModel, AutoProcessor
+
+        AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
 
         self.torch = torch
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
@@ -45,7 +47,11 @@ class SpladeJapaneseSparseEncoder:
         top_k: int = 256,
     ) -> None:
         import torch
-        from transformers import AutoModelForMaskedLM, AutoTokenizer
+
+        AutoModelForMaskedLM, AutoTokenizer = import_transformers_symbols(
+            "AutoModelForMaskedLM",
+            "AutoTokenizer",
+        )
 
         self.torch = torch
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
