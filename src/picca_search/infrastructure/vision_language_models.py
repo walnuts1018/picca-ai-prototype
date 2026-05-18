@@ -264,6 +264,9 @@ def _extract_detection_boxes(result: Any) -> list[Any]:
         data = data()
     if not isinstance(data, dict):
         return []
+    payload = data.get("res")
+    if isinstance(payload, dict):
+        data = payload
     return list(
         data.get("dt_polys")
         or data.get("boxes")
@@ -307,9 +310,16 @@ def _walk_text_values(value: Any) -> list[str]:
         return [normalized] if normalized else []
     if isinstance(value, dict):
         texts: list[str] = []
-        for key in ("markdown", "text", "rec_text", "transcription", "content"):
+        for key in (
+            "markdown",
+            "text",
+            "rec_text",
+            "transcription",
+            "content",
+            "block_content",
+        ):
             texts.extend(_walk_text_values(value.get(key)))
-        for key in ("res", "result", "data"):
+        for key in ("res", "result", "data", "parsing_res_list"):
             texts.extend(_walk_text_values(value.get(key)))
         return texts
     if isinstance(value, list | tuple):
@@ -325,6 +335,7 @@ def _walk_text_values(value: Any) -> list[str]:
         "rec_text",
         "transcription",
         "content",
+        "block_content",
         "res",
     ):
         if hasattr(value, attribute):
