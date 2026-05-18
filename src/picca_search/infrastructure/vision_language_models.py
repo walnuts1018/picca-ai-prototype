@@ -15,7 +15,7 @@ from picca_search.infrastructure.transformers_compat import (
 
 
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
-FLORENCE2_MODEL = "microsoft/Florence-2-large-ft"
+FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
 FLORENCE2_MORE_DETAILED_CAPTION = "<MORE_DETAILED_CAPTION>"
 
 
@@ -33,7 +33,9 @@ class PaddleOcrVlTextExtractor:
         )
         _prepare_paddlex_dependency_checks_for_ocr()
 
-        self.pipeline = PaddleOCRVL(pipeline_version=pipeline_version, **pipeline_options)
+        self.pipeline = PaddleOCRVL(
+            pipeline_version=pipeline_version, **pipeline_options
+        )
 
     def extract_text(self, image_path: Path) -> str:
         output = self.pipeline.predict(str(image_path))
@@ -71,7 +73,9 @@ class Florence2Captioner:
         self.max_new_tokens = max_new_tokens
         self.num_beams = num_beams
         self.use_cache = use_cache
-        self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+        self.processor = AutoProcessor.from_pretrained(
+            model_name, trust_remote_code=True
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=self.torch_dtype,
@@ -148,7 +152,14 @@ def _walk_text_values(value: Any) -> list[str]:
         return texts
 
     texts = []
-    for attribute in ("markdown", "text", "rec_text", "transcription", "content", "res"):
+    for attribute in (
+        "markdown",
+        "text",
+        "rec_text",
+        "transcription",
+        "content",
+        "res",
+    ):
         if hasattr(value, attribute):
             texts.extend(_walk_text_values(getattr(value, attribute)))
     return texts
