@@ -15,6 +15,7 @@ from picca_search.infrastructure.transformers_compat import (
 
 
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
+PP_OCR_V5_MOBILE_DET_MODEL = "PP-OCRv5_mobile_det"
 FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
 FLORENCE2_MORE_DETAILED_CAPTION = "<MORE_DETAILED_CAPTION>"
 CAT_TRANSLATE_MODEL = "cyberagent/CAT-Translate-0.8b"
@@ -27,23 +28,60 @@ class PaddleOcrVlTextExtractor:
     def __init__(
         self,
         pipeline_version: str = PADDLE_OCR_VL_PIPELINE_VERSION,
+        text_detector_model_name: str = PP_OCR_V5_MOBILE_DET_MODEL,
+        text_detector_thresh: float = 0.15,
+        text_detector_box_thresh: float = 0.25,
+        text_detector_limit_side_len: int = 960,
+        min_box_area_ratio: float = 0.00002,
+        text_detector: Any | None = None,
+        vl_pipeline: Any | None = None,
         **pipeline_options: Any,
     ) -> None:
-        (PaddleOCRVL,) = import_module_symbols(
-            "paddleocr",
-            "PaddleOCRVL",
-            hidden_import_packages=OPTIONAL_PADDLEOCR_IMPORT_PROBES,
-            hidden_distribution_names=OPTIONAL_PADDLEOCR_DISTRIBUTIONS,
-        )
-        _prepare_paddlex_dependency_checks_for_ocr()
+        self.text_detector_thresh = text_detector_thresh
+        self.text_detector_box_thresh = text_detector_box_thresh
+        self.text_detector_limit_side_len = text_detector_limit_side_len
+        self.min_box_area_ratio = min_box_area_ratio
 
-        self.pipeline = PaddleOCRVL(
-            pipeline_version=pipeline_version, **pipeline_options
-        )
+        if text_detector is None or vl_pipeline is None:
+            _prepare_paddlex_dependency_checks_for_ocr()
+            PaddleOCRVL, TextDetection = import_module_symbols(
+                "paddleocr",
+                "PaddleOCRVL",
+                "TextDetection",
+                hidden_import_packages=OPTIONAL_PADDLEOCR_IMPORT_PROBES,
+                hidden_distribution_names=OPTIONAL_PADDLEOCR_DISTRIBUTIONS,
+            )
+            if text_detector is None:
+                text_detector = TextDetection(model_name=text_detector_model_name)
+            if vl_pipeline is None:
+                vl_pipeline = PaddleOCRVL(
+                    pipeline_version=pipeline_version, **pipeline_options
+                )
+
+        self.text_detector = text_detector
+        self.pipeline = vl_pipeline
 
     def extract_text(self, image_path: Path) -> str:
+        if not self._should_run_vl(image_path):
+            return ""
         output = self.pipeline.predict(str(image_path))
         return _text_from_paddleocr_result(output)
+
+    def _should_run_vl(self, image_path: Path) -> bool:
+        image_area = _image_area(image_path)
+        results = self.text_detector.predict(
+            input=str(image_path),
+            batch_size=1,
+            limit_side_len=self.text_detector_limit_side_len,
+            limit_type="max",
+            thresh=self.text_detector_thresh,
+            box_thresh=self.text_detector_box_thresh,
+        )
+        for result in results:
+            for box in _extract_detection_boxes(result):
+                if _box_area_ratio(box, image_area) >= self.min_box_area_ratio:
+                    return True
+        return False
 
 
 class Florence2Captioner:
@@ -212,6 +250,53 @@ def _caption_text_from_florence_answer(answer: Any) -> str:
             if isinstance(value, str) and value.strip() != "":
                 return value.strip()
     return ""
+
+
+def _image_area(image_path: Path) -> int:
+    with Image.open(image_path) as image:
+        width, height = image.size
+    return max(width * height, 1)
+
+
+def _extract_detection_boxes(result: Any) -> list[Any]:
+    data = getattr(result, "json", result)
+    if callable(data):
+        data = data()
+    if not isinstance(data, dict):
+        return []
+    return list(
+        data.get("dt_polys")
+        or data.get("boxes")
+        or data.get("rec_boxes")
+        or data.get("poly")
+        or []
+    )
+
+
+def _box_area_ratio(box: Any, image_area: int) -> float:
+    points = list(_iter_points(box))
+    if len(points) == 0:
+        return 0.0
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    width = max(xs) - min(xs)
+    height = max(ys) - min(ys)
+    return max(width, 0.0) * max(height, 0.0) / image_area
+
+
+def _iter_points(box: Any) -> list[tuple[float, float]]:
+    points: list[tuple[float, float]] = []
+    if not isinstance(box, list | tuple):
+        return points
+    for point in box:
+        if (
+            isinstance(point, list | tuple)
+            and len(point) >= 2
+            and isinstance(point[0], int | float)
+            and isinstance(point[1], int | float)
+        ):
+            points.append((float(point[0]), float(point[1])))
+    return points
 
 
 def _walk_text_values(value: Any) -> list[str]:

@@ -6,10 +6,12 @@ Qdrant は Docker Compose で動かし、画像取り込みと検索は単純な
 ## Setup
 
 ```bash
-uv python pin 3.13
+uv python pin 3.12
 uv sync --group vision
 docker compose up -d qdrant
 ```
+
+`paddleocr` / `paddlex` の依存がこのプロジェクトでは Python 3.13 で正常動作しないため、画像取り込みは Python 3.12 を前提にしています。
 
 ## Ingest
 
