@@ -20,7 +20,7 @@ from picca_search.infrastructure.embedding_models import (
 )
 from picca_search.infrastructure.qdrant_index import QdrantImageIndex
 from picca_search.infrastructure.vision_language_models import (
-    Florence2Captioner,
+    Florence2WithJapaneseTranslation,
     PaddleOcrVlTextExtractor,
 )
 
@@ -142,7 +142,7 @@ def ingest_image(
     *,
     image_path: Path,
     ocr_text_extractor: PaddleOcrVlTextExtractor,
-    image_captioner: Florence2Captioner,
+    image_captioner: Florence2WithJapaneseTranslation,
     image_dense_encoder: WaonSiglipEncoder,
     sparse_encoder: SpladeJapaneseSparseEncoder,
     image_index: QdrantImageIndex,
@@ -162,7 +162,7 @@ def ingest_images(
     *,
     image_paths: list[Path],
     ocr_text_extractor: PaddleOcrVlTextExtractor,
-    image_captioner: Florence2Captioner,
+    image_captioner: Florence2WithJapaneseTranslation,
     image_dense_encoder: WaonSiglipEncoder,
     sparse_encoder: SpladeJapaneseSparseEncoder,
     image_index: QdrantImageIndex,
@@ -256,7 +256,7 @@ def main() -> None:
     dense_encoder = WaonSiglipEncoder(device=args.dense_device)
     sparse_encoder = SpladeJapaneseSparseEncoder(device=args.sparse_device)
     ocr_text_extractor = PaddleOcrVlTextExtractor(device=args.ocr_device)
-    image_captioner = Florence2Captioner(device=args.caption_device)
+    image_captioner = Florence2WithJapaneseTranslation(device=args.caption_device)
     index = QdrantImageIndex(QdrantClient(url=args.qdrant_url), args.collection)
 
     ingest_images(

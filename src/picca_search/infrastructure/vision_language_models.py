@@ -17,6 +17,10 @@ from picca_search.infrastructure.transformers_compat import (
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
 FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
 FLORENCE2_MORE_DETAILED_CAPTION = "<MORE_DETAILED_CAPTION>"
+CAT_TRANSLATE_MODEL = "cyberagent/CAT-Translate-0.8b"
+CAT_TRANSLATE_PROMPT = "Translate the following {src_lang} text into {tgt_lang}.\n\n{src_text}"
+CAT_SRC_LANG = "English"
+CAT_TGT_LANG = "Japanese"
 
 
 class PaddleOcrVlTextExtractor:
@@ -111,6 +115,84 @@ class Florence2Captioner:
             image_size=image_size,
         )
         return _caption_text_from_florence_answer(parsed_answer)
+
+
+class JapaneseTranslator:
+    def __init__(
+        self,
+        model_name: str = CAT_TRANSLATE_MODEL,
+        src_lang: str = CAT_SRC_LANG,
+        tgt_lang: str = CAT_TGT_LANG,
+        device: str | None = None,
+        max_new_tokens: int = 128,
+    ) -> None:
+        import torch
+
+        AutoModelForCausalLM, AutoTokenizer = import_transformers_symbols(
+            "AutoModelForCausalLM",
+            "AutoTokenizer",
+        )
+
+        self.torch = torch
+        self.device = device or (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps"
+            if torch.backends.mps.is_available()
+            else "cpu"
+        )
+        self.torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
+        self.src_lang = src_lang
+        self.tgt_lang = tgt_lang
+        self.max_new_tokens = max_new_tokens
+        self.prompt_template = CAT_TRANSLATE_PROMPT
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=self.torch_dtype,
+        ).to(self.device)
+        self.model.eval()
+
+    def translate(self, text: str) -> str:
+        prompt = self.prompt_template.format(
+            src_lang=self.src_lang,
+            tgt_lang=self.tgt_lang,
+            src_text=text,
+        )
+        messages = [{"role": "user", "content": prompt}]
+        inputs = self.tokenizer.apply_chat_template(
+            messages, return_tensors="pt", add_generation_prompt=True
+        ).to(self.device)
+        with self.torch.no_grad():
+            generated_ids = self.model.generate(
+                inputs,
+                max_new_tokens=self.max_new_tokens,
+                do_sample=False,
+            )
+        generated_text = self.tokenizer.decode(
+            generated_ids[0, inputs.shape[1]:],
+            skip_special_tokens=True,
+        )
+        return generated_text.strip()
+
+
+class Florence2WithJapaneseTranslation:
+    def __init__(
+        self,
+        captioner: Florence2Captioner | None = None,
+        translator: JapaneseTranslator | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.captioner = captioner or Florence2Captioner(**kwargs)
+        self.translator = translator or JapaneseTranslator(
+            device=kwargs.get("device")
+        )
+
+    def caption(self, image_path: Path) -> str:
+        english_caption = self.captioner.caption(image_path)
+        if not english_caption:
+            return ""
+        return self.translator.translate(english_caption)
 
 
 def _text_from_paddleocr_result(result: Any) -> str:
