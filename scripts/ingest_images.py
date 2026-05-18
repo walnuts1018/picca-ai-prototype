@@ -6,6 +6,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+import time
 
 from PIL import Image, ImageOps
 from qdrant_client import QdrantClient
@@ -179,20 +180,48 @@ def ingest_images(
     total = len(image_paths)
 
     for i, image_path in enumerate(image_paths, 1):
+        t0 = time.monotonic()
+
+        t_prepare = time.monotonic()
         with prepare_inference_image(image_path) as inference_path:
+            t_ocr = time.monotonic()
             ocr_text = ocr_text_extractor.extract_text(inference_path)
+            t_caption = time.monotonic()
             caption = image_captioner.caption(inference_path)
             with Image.open(inference_path).convert("RGB") as img:
                 accumulator.add(image_path, img.copy(), ocr_text, caption)
 
+        prepare_time = t_ocr - t_prepare
+        ocr_time = t_caption - t_ocr
+        caption_time = time.monotonic() - t_caption
+
+        batch_flushed = False
+        dense_encode_time = 0.0
+        upsert_time = 0.0
         if accumulator.is_ready():
+            t_dense = time.monotonic()
             batch_docs = accumulator.flush()
+            t_encode = time.monotonic()
             image_index.upsert(batch_docs)
+            t_upsert = time.monotonic()
+
+            dense_encode_time = t_encode - t_dense
+            upsert_time = t_upsert - t_encode
+            batch_flushed = True
+
             documents.extend(batch_docs)
             for doc in batch_docs:
                 print(f"indexed\t{doc.image_id.value}\t{doc.image_path.value}")
 
+        total_time = time.monotonic() - t0
         print(f"[{i}/{total}] {image_path.name}", flush=True)
+        print(f"  prepare: {prepare_time:.3f}s", flush=True)
+        print(f"  ocr: {ocr_time:.3f}s", flush=True)
+        print(f"  caption: {caption_time:.3f}s", flush=True)
+        if batch_flushed:
+            print(f"  dense_encode: {dense_encode_time:.3f}s (batch)", flush=True)
+            print(f"  upsert: {upsert_time:.3f}s (batch)", flush=True)
+        print(f"  total: {total_time:.3f}s", flush=True)
 
     remaining = accumulator.flush()
     if remaining:
