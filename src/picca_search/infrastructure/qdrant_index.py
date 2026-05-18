@@ -100,6 +100,12 @@ class QdrantImageIndex:
                     distance=models.Distance.COSINE,
                 )
             },
+            quantization_config=models.ScalarQuantization(
+                scalar=models.ScalarQuantizationConfig(
+                    type=models.ScalarType.INT8,
+                    always_ram=True,
+                )
+            ),
             sparse_vectors_config={
                 SPARSE_VECTOR_NAME: models.SparseVectorParams(
                     index=models.SparseIndexParams(on_disk=False)
