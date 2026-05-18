@@ -16,7 +16,7 @@ from picca_search.infrastructure.transformers_compat import (
 
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
 FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
-FLORENCE2_MORE_DETAILED_CAPTION = "<MORE_DETAILED_CAPTION>"
+FLORENCE2_CAPTION = "<CAPTION>"
 MARIAN_MT_EN_JAP_MODEL = "staka/fugumt-en-ja"
 
 
@@ -90,13 +90,16 @@ class MarianMtEnJapTranslator:
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=512,
+                max_length=128,
             ).to(self.device)
             with self.torch.no_grad():
                 generated_ids = self.model.generate(
                     **inputs,
-                    max_length=512,
+                    max_new_tokens=64,
                     num_beams=4,
+                    do_sample=False,
+                    repetition_penalty=1.2,
+                    no_repeat_ngram_size=3,
                     early_stopping=True,
                 )
             translated = self.tokenizer.batch_decode(
@@ -111,9 +114,9 @@ class Florence2Captioner:
     def __init__(
         self,
         model_name: str = FLORENCE2_MODEL,
-        task_prompt: str = FLORENCE2_MORE_DETAILED_CAPTION,
+        task_prompt: str = FLORENCE2_CAPTION,
         device: str | None = None,
-        max_new_tokens: int = 1024,
+        max_new_tokens: int = 32,
         num_beams: int = 3,
         attn_implementation: str = "eager",
         use_cache: bool = False,
@@ -165,6 +168,8 @@ class Florence2Captioner:
                 max_new_tokens=self.max_new_tokens,
                 num_beams=self.num_beams,
                 use_cache=self.use_cache,
+                repetition_penalty=1.2,
+                no_repeat_ngram_size=3,
             )
         generated_text = self.processor.batch_decode(
             generated_ids,
@@ -175,7 +180,10 @@ class Florence2Captioner:
             task=self.task_prompt,
             image_size=image_size,
         )
-        return _caption_text_from_florence_answer(parsed_answer)
+        caption_text = _caption_text_from_florence_answer(parsed_answer)
+        if is_bad_caption(caption_text):
+            return ""
+        return caption_text
 
 
 class TranslatedCaptioner:
@@ -201,7 +209,7 @@ def _caption_text_from_florence_answer(answer: Any) -> str:
     if isinstance(answer, str):
         return answer.strip()
     if isinstance(answer, dict):
-        for key in (FLORENCE2_MORE_DETAILED_CAPTION, "<DETAILED_CAPTION>", "<CAPTION>"):
+        for key in (FLORENCE2_CAPTION, "<DETAILED_CAPTION>", "<MORE_DETAILED_CAPTION>"):
             value = answer.get(key)
             if isinstance(value, str) and value.strip() != "":
                 return value.strip()
@@ -209,6 +217,22 @@ def _caption_text_from_florence_answer(answer: Any) -> str:
             if isinstance(value, str) and value.strip() != "":
                 return value.strip()
     return ""
+
+
+def is_bad_caption(text: str) -> bool:
+    if len(text) > 300:
+        return True
+    words = text.lower().split()
+    if len(words) >= 20:
+        unique_ratio = len(set(words)) / len(words)
+        if unique_ratio < 0.35:
+            return True
+    bad_phrases = [
+        "the color of the color",
+        "white color color",
+        "it is it is",
+    ]
+    return any(p in text.lower() for p in bad_phrases)
 
 
 def _walk_text_values(value: Any) -> list[str]:
