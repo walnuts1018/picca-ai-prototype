@@ -53,6 +53,8 @@ def ingest_image(
     sparse_encoder: SparseTextEncoder,
     image_index: ImageIndex,
     inference_image_path: Path | None = None,
+    ocr_text: str = "",
+    caption: str = "",
 ) -> ImageDocument:
     valid_path = ImagePath.create(image_path)
     valid_inference_path = ImagePath.create(
@@ -65,6 +67,8 @@ def ingest_image(
         dense_vector=image_dense_encoder.encode_image(valid_inference_path.value),
         sparse_vector=sparse_encoder.encode_text(normalized_text),
         text=normalized_text,
+        ocr_text=ocr_text,
+        caption=caption,
     )
     image_index.upsert([document])
     return document
@@ -94,6 +98,8 @@ def ingest_image_with_extracted_text(
         image_dense_encoder=image_dense_encoder,
         sparse_encoder=sparse_encoder,
         image_index=image_index,
+        ocr_text=extracted_text.ocr_text,
+        caption=extracted_text.caption,
     )
 
 

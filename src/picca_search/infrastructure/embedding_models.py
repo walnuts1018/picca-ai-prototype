@@ -22,6 +22,7 @@ class WaonSiglipEncoder:
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
         self.processor = AutoProcessor.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name).to(self.device)
+        self.text_max_length = int(self.model.config.text_config.max_position_embeddings)
         self.model.eval()
 
     def encode_image(self, image_path: Path) -> DenseVector:
@@ -33,7 +34,15 @@ class WaonSiglipEncoder:
         return DenseVector.create(_normalized_values(self.torch, features))
 
     def encode_text(self, text: str) -> DenseVector:
-        inputs = self.processor(text=[text], padding=True, return_tensors="pt").to(self.device)
+        # SigLIP text features are sensitive to padding strategy; fixed-length tokenization
+        # produces stable image-text similarity, while variable-length padding does not.
+        inputs = self.processor(
+            text=[text],
+            padding="max_length",
+            truncation=True,
+            max_length=self.text_max_length,
+            return_tensors="pt",
+        ).to(self.device)
         with self.torch.no_grad():
             features = self.model.get_text_features(**inputs)
         return DenseVector.create(_normalized_values(self.torch, features))

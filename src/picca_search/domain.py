@@ -92,18 +92,26 @@ class SearchQuery:
 
 @dataclass(frozen=True)
 class ExtractedImageText:
+    ocr_text: str
+    caption: str
     combined: str
 
     @classmethod
     def create(cls, ocr_text: str, caption: str) -> "ExtractedImageText":
+        normalized_ocr = _normalize_text_block(ocr_text)
+        normalized_caption = _normalize_text_block(caption)
         parts = [
             normalized
-            for text in (ocr_text, caption)
-            if (normalized := _normalize_text_block(text)) != ""
+            for normalized in (normalized_ocr, normalized_caption)
+            if normalized != ""
         ]
         if len(parts) == 0:
             raise ValueError("Extracted image text must not be blank")
-        return cls("\n".join(parts))
+        return cls(
+            ocr_text=normalized_ocr,
+            caption=normalized_caption,
+            combined="\n".join(parts),
+        )
 
 
 @dataclass(frozen=True)
@@ -113,6 +121,8 @@ class ImageDocument:
     dense_vector: DenseVector
     sparse_vector: SparseVector
     text: str
+    ocr_text: str = ""
+    caption: str = ""
 
     @classmethod
     def create(
@@ -122,6 +132,8 @@ class ImageDocument:
         dense_vector: DenseVector,
         sparse_vector: SparseVector,
         text: str,
+        ocr_text: str = "",
+        caption: str = "",
     ) -> "ImageDocument":
         return cls(
             image_id=image_id,
@@ -129,14 +141,21 @@ class ImageDocument:
             dense_vector=dense_vector,
             sparse_vector=sparse_vector,
             text=text.strip(),
+            ocr_text=ocr_text.strip(),
+            caption=caption.strip(),
         )
 
     @property
     def payload(self) -> dict[str, str]:
-        return {
+        payload = {
             "path": str(self.image_path.value),
             "text": self.text,
         }
+        if self.ocr_text != "":
+            payload["ocr_text"] = self.ocr_text
+        if self.caption != "":
+            payload["caption"] = self.caption
+        return payload
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from qdrant_client import QdrantClient, models
 
 from picca_search.domain import DenseVector, ImageDocument, ImageId, SearchResult, SparseVector
@@ -7,6 +9,22 @@ from picca_search.domain import DenseVector, ImageDocument, ImageId, SearchResul
 
 DENSE_VECTOR_NAME = "dense"
 SPARSE_VECTOR_NAME = "sparse"
+RRF_K = 1
+
+
+@dataclass(frozen=True)
+class RankedSearchResult:
+    image_id: ImageId
+    score: float
+    payload: dict[str, object]
+    rank: int
+
+
+@dataclass(frozen=True)
+class SearchDiagnostics:
+    fused: list[SearchResult]
+    dense: list[RankedSearchResult]
+    sparse: list[RankedSearchResult]
 
 
 def point_from_document(document: ImageDocument) -> models.PointStruct:
@@ -53,6 +71,15 @@ def search_result_from_scored_point(point: models.ScoredPoint) -> SearchResult:
     )
 
 
+def ranked_result_from_scored_point(point: models.ScoredPoint, rank: int) -> RankedSearchResult:
+    return RankedSearchResult(
+        image_id=ImageId(str(point.id)),
+        score=float(point.score),
+        payload=dict(point.payload or {}),
+        rank=rank,
+    )
+
+
 class QdrantImageIndex:
     def __init__(self, client: QdrantClient, collection_name: str) -> None:
         self.client = client
@@ -91,12 +118,62 @@ class QdrantImageIndex:
         query_sparse: SparseVector,
         limit: int,
     ) -> list[SearchResult]:
-        response = self.client.query_points(
+        return self.search_with_diagnostics(query_dense, query_sparse, limit).fused
+
+    def search_with_diagnostics(
+        self,
+        query_dense: DenseVector,
+        query_sparse: SparseVector,
+        limit: int,
+    ) -> SearchDiagnostics:
+        dense_response = self.client.query_points(
             collection_name=self.collection_name,
-            prefetch=prefetches_from_query(query_dense, query_sparse, limit),
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query=list(query_dense.values),
+            using=DENSE_VECTOR_NAME,
             limit=limit,
             with_payload=True,
         )
-        points = getattr(response, "points", response)
-        return [search_result_from_scored_point(point) for point in points]
+        sparse_response = self.client.query_points(
+            collection_name=self.collection_name,
+            query=models.SparseVector(
+                indices=list(query_sparse.indices),
+                values=list(query_sparse.values),
+            ),
+            using=SPARSE_VECTOR_NAME,
+            limit=limit,
+            with_payload=True,
+        )
+        dense_points = getattr(dense_response, "points", dense_response)
+        sparse_points = getattr(sparse_response, "points", sparse_response)
+        dense = [ranked_result_from_scored_point(point, rank=idx + 1) for idx, point in enumerate(dense_points)]
+        sparse = [ranked_result_from_scored_point(point, rank=idx + 1) for idx, point in enumerate(sparse_points)]
+
+        fused_scores: dict[str, SearchResult] = {}
+        for result in dense:
+            fused_scores[result.image_id.value] = SearchResult(
+                image_id=result.image_id,
+                score=1.0 / (RRF_K + result.rank),
+                payload=result.payload,
+            )
+        for result in sparse:
+            existing = fused_scores.get(result.image_id.value)
+            contribution = 1.0 / (RRF_K + result.rank)
+            if existing is None:
+                fused_scores[result.image_id.value] = SearchResult(
+                    image_id=result.image_id,
+                    score=contribution,
+                    payload=result.payload,
+                )
+            else:
+                fused_scores[result.image_id.value] = SearchResult(
+                    image_id=existing.image_id,
+                    score=existing.score + contribution,
+                    payload=existing.payload,
+                )
+
+        fused = sorted(
+            fused_scores.values(),
+            key=lambda result: result.score,
+            reverse=True,
+        )[:limit]
+        return SearchDiagnostics(fused=fused, dense=dense, sparse=sparse)
