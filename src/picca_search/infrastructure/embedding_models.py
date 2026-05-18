@@ -47,6 +47,14 @@ class WaonSiglipEncoder:
             features = self.model.get_text_features(**inputs)
         return DenseVector.create(_normalized_values(self.torch, features))
 
+    def encode_images(self, images: list[Image.Image]) -> list[DenseVector]:
+        inputs = self.processor(images=images, return_tensors="pt").to(self.device)
+        with self.torch.no_grad():
+            features = self.model.get_image_features(**inputs)
+        normalized = features / features.norm(dim=-1, keepdim=True).clamp(min=1e-12)
+        batch_values = normalized.detach().cpu().tolist()
+        return [DenseVector.create(row) for row in batch_values]
+
 
 class SpladeJapaneseSparseEncoder:
     def __init__(
