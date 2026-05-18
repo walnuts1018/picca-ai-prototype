@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,7 +11,7 @@ from PIL import Image, ImageOps
 from qdrant_client import QdrantClient
 
 from picca_search.application import build_image_document_with_extracted_text
-from picca_search.domain import ImageDocument
+from picca_search.domain import ExtractedImageText, ImageDocument, ImageId, ImagePath
 from picca_search.domain import SUPPORTED_IMAGE_EXTENSIONS
 from picca_search.infrastructure.embedding_models import (
     SpladeJapaneseSparseEncoder,
@@ -76,6 +77,65 @@ def _select_output_format(image_path: Path, image: Image.Image) -> tuple[str, st
         return ".png", "PNG"
 
     return ".jpg", "JPEG"
+
+
+@dataclass
+class _PendingImage:
+    image_path: Path
+    image: Image.Image
+    ocr_text: str
+    caption: str
+
+
+class IngestionBatchAccumulator:
+    MAX_BATCH_SIZE = 64
+
+    def __init__(
+        self,
+        *,
+        image_dense_encoder: WaonSiglipEncoder,
+        sparse_encoder: SpladeJapaneseSparseEncoder,
+        batch_size: int,
+    ):
+        if batch_size > self.MAX_BATCH_SIZE:
+            raise ValueError(
+                f"batch_size={batch_size} exceeds MAX_BATCH_SIZE={self.MAX_BATCH_SIZE}. "
+                f"Large batches can cause OOM due to in-memory PIL.Image storage."
+            )
+        self.encoder = image_dense_encoder
+        self.sparse = sparse_encoder
+        self.batch_size = batch_size
+        self.pending: list[_PendingImage] = []
+
+    def add(self, image_path: Path, image: Image.Image, ocr_text: str, caption: str) -> None:
+        ExtractedImageText.create(ocr_text, caption)
+        self.pending.append(_PendingImage(image_path, image, ocr_text, caption))
+
+    def is_ready(self) -> bool:
+        return len(self.pending) >= self.batch_size
+
+    def flush(self) -> list[ImageDocument]:
+        if not self.pending:
+            return []
+        pending = self.pending
+        self.pending = []
+        images = [p.image for p in pending]
+        texts = [ExtractedImageText.create(p.ocr_text, p.caption).combined for p in pending]
+        dense_vectors = self.encoder.encode_images(images)
+        sparse_vectors = self.sparse.encode_texts(texts)
+        documents: list[ImageDocument] = []
+        for p, dense, sparse, text in zip(pending, dense_vectors, sparse_vectors, texts):
+            doc = ImageDocument.create(
+                image_id=ImageId.from_path(p.image_path),
+                image_path=ImagePath.create(p.image_path),
+                dense_vector=dense,
+                sparse_vector=sparse,
+                text=text,
+                ocr_text=p.ocr_text,
+                caption=p.caption,
+            )
+            documents.append(doc)
+        return documents
 
 
 def ingest_image(
