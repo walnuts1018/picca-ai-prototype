@@ -15,8 +15,8 @@ from picca_search.infrastructure.transformers_compat import (
 
 
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
-FLORENCE2_MODEL = "aipib/Florence-2-VQAJP2"
-FLORENCE2_CAPTION = "<CAPTION>"
+FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
+FLORENCE2_MORE_DETAILED_CAPTION = "<MORE_DETAILED_CAPTION>"
 
 
 class PaddleOcrVlTextExtractor:
@@ -46,7 +46,7 @@ class Florence2Captioner:
     def __init__(
         self,
         model_name: str = FLORENCE2_MODEL,
-        task_prompt: str = FLORENCE2_CAPTION,
+        task_prompt: str = FLORENCE2_MORE_DETAILED_CAPTION,
         device: str | None = None,
         max_new_tokens: int = 1024,
         num_beams: int = 3,
@@ -122,7 +122,7 @@ def _caption_text_from_florence_answer(answer: Any) -> str:
     if isinstance(answer, str):
         return answer.strip()
     if isinstance(answer, dict):
-        for key in (FLORENCE2_CAPTION, "<DETAILED_CAPTION>", "<MORE_DETAILED_CAPTION>"):
+        for key in (FLORENCE2_MORE_DETAILED_CAPTION, "<DETAILED_CAPTION>", "<CAPTION>"):
             value = answer.get(key)
             if isinstance(value, str) and value.strip() != "":
                 return value.strip()
