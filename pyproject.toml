@@ -21,7 +21,6 @@ dev = [
 vision = [
     "paddlepaddle>=3.3.1",
     "paddleocr[doc-parser]>=3.3.0",
-    "sentencepiece>=0.2.0",
 ]
 
 [build-system]

@@ -17,7 +17,6 @@ from picca_search.infrastructure.transformers_compat import (
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
 FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
 FLORENCE2_MORE_DETAILED_CAPTION = "<MORE_DETAILED_CAPTION>"
-MARIAN_MT_EN_JAP_MODEL = "Helsinki-NLP/opus-mt-en-jap"
 
 
 class PaddleOcrVlTextExtractor:
@@ -41,58 +40,6 @@ class PaddleOcrVlTextExtractor:
     def extract_text(self, image_path: Path) -> str:
         output = self.pipeline.predict(str(image_path))
         return _text_from_paddleocr_result(output)
-
-
-class MarianMtEnJapTranslator:
-    def __init__(
-        self,
-        model_name: str = MARIAN_MT_EN_JAP_MODEL,
-        device: str | None = None,
-    ) -> None:
-        import torch
-
-        MarianMTModel, MarianTokenizer = import_transformers_symbols(
-            "MarianMTModel",
-            "MarianTokenizer",
-        )
-
-        self.torch = torch
-        self.device = device or (
-            "cuda"
-            if torch.cuda.is_available()
-            else "mps"
-            if torch.backends.mps.is_available()
-            else "cpu"
-        )
-        self.torch_dtype = torch.float16 if self.device == "cuda" else torch.float32
-        self.tokenizer = MarianTokenizer.from_pretrained(model_name)
-        self.model = MarianMTModel.from_pretrained(model_name).to(
-            self.device, self.torch_dtype
-        )
-        self.model.eval()
-
-    def translate(self, text: str) -> str:
-        if not text.strip():
-            return ""
-        inputs = self.tokenizer(
-            text,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=512,
-        ).to(self.device)
-        with self.torch.no_grad():
-            generated_ids = self.model.generate(
-                **inputs,
-                max_length=512,
-                num_beams=4,
-                early_stopping=True,
-            )
-        translated = self.tokenizer.batch_decode(
-            generated_ids,
-            skip_special_tokens=True,
-        )[0]
-        return translated.strip()
 
 
 class Florence2Captioner:
@@ -164,20 +111,6 @@ class Florence2Captioner:
             image_size=image_size,
         )
         return _caption_text_from_florence_answer(parsed_answer)
-
-
-class TranslatedCaptioner:
-    def __init__(
-        self,
-        captioner: Florence2Captioner,
-        translator: MarianMtEnJapTranslator,
-    ) -> None:
-        self.captioner = captioner
-        self.translator = translator
-
-    def caption(self, image_path: Path) -> str:
-        english_caption = self.captioner.caption(image_path)
-        return self.translator.translate(english_caption)
 
 
 def _text_from_paddleocr_result(result: Any) -> str:
