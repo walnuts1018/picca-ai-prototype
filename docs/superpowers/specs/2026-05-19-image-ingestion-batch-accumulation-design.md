@@ -23,7 +23,7 @@
 
 | ファイル | 変更内容 |
 |---------|---------|
-| `embedding_models.py` | `encode_images()`, `encode_texts()` バッチメソッド追加 |
+| `embedding_models.py` | `encode_images()` (WaonSiglipEncoder), `encode_texts()` (SpladeJapaneseSparseEncoder) バッチメソッド追加 |
 | `ingest_images.py` | `IngestionBatchAccumulator` クラス追加、`ingest_images()` 書き換え |
 | その他 | 変更なし |
 
@@ -43,6 +43,17 @@ def encode_images(self, images: list[Image.Image]) -> list[DenseVector]:
 
 - 既存の `encode_image()` は残す（後方互換性）
 - 呼び出し元で `Image.open().convert("RGB")` 済みのオブジェクトを渡す
+- `_normalized_values` ヘルパーを2Dテンソル対応にリファクタリングし、単一ソースオブ真理とする:
+
+```python
+def _normalized_values(torch, tensor) -> list[float]:
+    # 1D (single vector) or 2D (batch) 両対応
+    if tensor.dim() == 1:
+        normalized = tensor / tensor.norm().clamp(min=1e-12)
+        return normalized.detach().cpu().tolist()
+    normalized = tensor / tensor.norm(dim=-1, keepdim=True).clamp(min=1e-12)
+    return normalized.detach().cpu().tolist()
+```
 
 ### 2. SpladeJapaneseSparseEncoder.encode_texts()
 
@@ -84,6 +95,9 @@ class _PendingImage:
     caption: str
 
 class IngestionBatchAccumulator:
+    # 2048px RGB画像は約12MB。batch_size=128で約1.5GBのRAMを消費するため上限を設ける
+    MAX_BATCH_SIZE = 64
+
     def __init__(
         self,
         *,
@@ -91,12 +105,19 @@ class IngestionBatchAccumulator:
         sparse_encoder: SpladeJapaneseSparseEncoder,
         batch_size: int,
     ):
+        if batch_size > self.MAX_BATCH_SIZE:
+            raise ValueError(
+                f"batch_size={batch_size} exceeds MAX_BATCH_SIZE={self.MAX_BATCH_SIZE}. "
+                f"Large batches can cause OOM due to in-memory PIL.Image storage."
+            )
         self.encoder = image_dense_encoder
         self.sparse = sparse_encoder
         self.batch_size = batch_size
         self.pending: list[_PendingImage] = []
 
     def add(self, image_path: Path, image: Image.Image, ocr_text: str, caption: str) -> None:
+        # バリデーションを早期実行し、バッチ全体が失敗するのを防ぐ
+        ExtractedImageText.create(ocr_text, caption)
         self.pending.append(_PendingImage(image_path, image, ocr_text, caption))
 
     def is_ready(self) -> bool:
@@ -112,7 +133,7 @@ class IngestionBatchAccumulator:
         texts = [ExtractedImageText.create(p.ocr_text, p.caption).combined for p in pending]
         dense_vectors = self.encoder.encode_images(images)
         sparse_vectors = self.sparse.encode_texts(texts)
-        # ドキュメント生成
+        # ドキュメント生成（バリデーション済みなので失敗しない）
         documents = []
         for p, dense, sparse, text in zip(pending, dense_vectors, sparse_vectors, texts):
             doc = ImageDocument.create(
@@ -185,12 +206,16 @@ def ingest_images(
 
 ## エラーハンドリング
 
+- `accumulator.add()` で `ExtractedImageText.create()` を早期実行し、OCR/Captionが両方空の場合に即座に `ValueError` を発生させる（バッチ全体の失敗を防ぐ）
 - バッチエンコード中に例外が発生した場合、そのバッチ全体が失敗する（既存と同じ）
 - 個々の画像の失敗をスキップする仕組みはスコープ外（必要であれば別イシュー）
+- `batch_size` が `MAX_BATCH_SIZE=64` を超える場合、`ValueError` を発生（メモリ圧迫の防止）
 
 ## テスト計画
 
 - `WaonSiglipEncoder.encode_images()`: 複数画像のバッチエンコードが単一実行と同等の結果を返す
 - `SpladeJapaneseSparseEncoder.encode_texts()`: 複数テキストのバッチエンコードが単一実行と同等の結果を返す
 - `IngestionBatchAccumulator`: バッチサイズでflushされること、残りが正しく処理されること
+- `IngestionBatchAccumulator.add()`: OCR/Captionが両方空の場合に即座に `ValueError` を発生
+- `IngestionBatchAccumulator`: `batch_size > MAX_BATCH_SIZE` で `ValueError` を発生
 - 既存の `ingest_images` CLIが従来通り動作すること
