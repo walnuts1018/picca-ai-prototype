@@ -83,8 +83,7 @@ def _select_output_format(image_path: Path, image: Image.Image) -> tuple[str, st
 class _PendingImage:
     image_path: Path
     image: Image.Image
-    ocr_text: str
-    caption: str
+    extracted_text: ExtractedImageText
 
 
 class IngestionBatchAccumulator:
@@ -108,8 +107,8 @@ class IngestionBatchAccumulator:
         self.pending: list[_PendingImage] = []
 
     def add(self, image_path: Path, image: Image.Image, ocr_text: str, caption: str) -> None:
-        ExtractedImageText.create(ocr_text, caption)
-        self.pending.append(_PendingImage(image_path, image, ocr_text, caption))
+        extracted_text = ExtractedImageText.create(ocr_text, caption)
+        self.pending.append(_PendingImage(image_path, image, extracted_text))
 
     def is_ready(self) -> bool:
         return len(self.pending) >= self.batch_size
@@ -120,7 +119,7 @@ class IngestionBatchAccumulator:
         pending = self.pending
         self.pending = []
         images = [p.image for p in pending]
-        texts = [ExtractedImageText.create(p.ocr_text, p.caption).combined for p in pending]
+        texts = [p.extracted_text.combined for p in pending]
         dense_vectors = self.encoder.encode_images(images)
         sparse_vectors = self.sparse.encode_texts(texts)
         documents: list[ImageDocument] = []
@@ -131,8 +130,8 @@ class IngestionBatchAccumulator:
                 dense_vector=dense,
                 sparse_vector=sparse,
                 text=text,
-                ocr_text=p.ocr_text,
-                caption=p.caption,
+                ocr_text=p.extracted_text.ocr_text,
+                caption=p.extracted_text.caption,
             )
             documents.append(doc)
         return documents
@@ -171,25 +170,30 @@ def ingest_images(
     if batch_size < 1:
         raise ValueError("Batch size must be greater than zero")
 
+    accumulator = IngestionBatchAccumulator(
+        image_dense_encoder=image_dense_encoder,
+        sparse_encoder=sparse_encoder,
+        batch_size=batch_size,
+    )
     documents: list[ImageDocument] = []
-    batch: list[ImageDocument] = []
-    for image_path in image_paths:
-        document = ingest_image(
-            image_path=image_path,
-            ocr_text_extractor=ocr_text_extractor,
-            image_captioner=image_captioner,
-            image_dense_encoder=image_dense_encoder,
-            sparse_encoder=sparse_encoder,
-            image_index=image_index,
-        )
-        documents.append(document)
-        batch.append(document)
-        if len(batch) >= batch_size:
-            image_index.upsert(batch)
-            batch = []
 
-    if len(batch) > 0:
-        image_index.upsert(batch)
+    for image_path in image_paths:
+        with prepare_inference_image(image_path) as inference_path:
+            ocr_text = ocr_text_extractor.extract_text(inference_path)
+            caption = image_captioner.caption(inference_path)
+            with Image.open(inference_path).convert("RGB") as img:
+                accumulator.add(image_path, img.copy(), ocr_text, caption)
+
+        if accumulator.is_ready():
+            batch_docs = accumulator.flush()
+            image_index.upsert(batch_docs)
+            documents.extend(batch_docs)
+
+    remaining = accumulator.flush()
+    if remaining:
+        image_index.upsert(remaining)
+        documents.extend(remaining)
+
     return documents
 
 

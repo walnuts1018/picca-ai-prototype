@@ -3,6 +3,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 
+from PIL import Image
+
 from picca_search.domain import DenseVector, ImageDocument, ImageId, ImagePath, SparseVector
 from scripts import ingest_images, search_images
 
@@ -11,6 +13,9 @@ class FakeDenseEncoder:
     def encode_image(self, image_path: Path) -> DenseVector:
         return DenseVector.create([0.1, 0.2])
 
+    def encode_images(self, images: list[Image.Image]) -> list[DenseVector]:
+        return [DenseVector.create([0.1, 0.2]) for _ in images]
+
     def encode_text(self, text: str) -> DenseVector:
         return DenseVector.create([0.1, 0.2])
 
@@ -18,6 +23,9 @@ class FakeDenseEncoder:
 class FakeSparseEncoder:
     def encode_text(self, text: str) -> SparseVector:
         return SparseVector.create([1, 2], [0.3, 0.4])
+
+    def encode_texts(self, texts: list[str]) -> list[SparseVector]:
+        return [SparseVector.create([1, 2], [0.3, 0.4]) for _ in texts]
 
 
 class FakeOcr:
@@ -51,7 +59,8 @@ class RecordingIndex:
 
 
 def make_image(path: Path) -> Path:
-    path.write_bytes(b"fake")
+    img = Image.new("RGB", (10, 10), color="red")
+    img.save(path)
     return path
 
 
