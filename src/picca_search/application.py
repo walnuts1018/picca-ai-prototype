@@ -46,12 +46,11 @@ class ImageIndex(Protocol):
     ) -> list[SearchResult]: ...
 
 
-def ingest_image(
+def build_image_document(
     image_path: Path,
     text: str,
     image_dense_encoder: ImageDenseEncoder,
     sparse_encoder: SparseTextEncoder,
-    image_index: ImageIndex,
     inference_image_path: Path | None = None,
     ocr_text: str = "",
     caption: str = "",
@@ -70,8 +69,57 @@ def ingest_image(
         ocr_text=ocr_text,
         caption=caption,
     )
+    return document
+
+
+def ingest_image(
+    image_path: Path,
+    text: str,
+    image_dense_encoder: ImageDenseEncoder,
+    sparse_encoder: SparseTextEncoder,
+    image_index: ImageIndex,
+    inference_image_path: Path | None = None,
+    ocr_text: str = "",
+    caption: str = "",
+) -> ImageDocument:
+    document = build_image_document(
+        image_path=image_path,
+        text=text,
+        image_dense_encoder=image_dense_encoder,
+        sparse_encoder=sparse_encoder,
+        inference_image_path=inference_image_path,
+        ocr_text=ocr_text,
+        caption=caption,
+    )
     image_index.upsert([document])
     return document
+
+
+def build_image_document_with_extracted_text(
+    image_path: Path,
+    ocr_text_extractor: OcrTextExtractor,
+    image_captioner: ImageCaptioner,
+    image_dense_encoder: ImageDenseEncoder,
+    sparse_encoder: SparseTextEncoder,
+    inference_image_path: Path | None = None,
+) -> ImageDocument:
+    valid_path = ImagePath.create(image_path)
+    valid_inference_path = ImagePath.create(
+        inference_image_path if inference_image_path is not None else valid_path.value
+    )
+    extracted_text = ExtractedImageText.create(
+        ocr_text=ocr_text_extractor.extract_text(valid_inference_path.value),
+        caption=image_captioner.caption(valid_inference_path.value),
+    )
+    return build_image_document(
+        image_path=valid_path.value,
+        text=extracted_text.combined,
+        inference_image_path=valid_inference_path.value,
+        image_dense_encoder=image_dense_encoder,
+        sparse_encoder=sparse_encoder,
+        ocr_text=extracted_text.ocr_text,
+        caption=extracted_text.caption,
+    )
 
 
 def ingest_image_with_extracted_text(
@@ -83,24 +131,16 @@ def ingest_image_with_extracted_text(
     image_index: ImageIndex,
     inference_image_path: Path | None = None,
 ) -> ImageDocument:
-    valid_path = ImagePath.create(image_path)
-    valid_inference_path = ImagePath.create(
-        inference_image_path if inference_image_path is not None else valid_path.value
-    )
-    extracted_text = ExtractedImageText.create(
-        ocr_text=ocr_text_extractor.extract_text(valid_inference_path.value),
-        caption=image_captioner.caption(valid_inference_path.value),
-    )
-    return ingest_image(
-        image_path=valid_path.value,
-        text=extracted_text.combined,
-        inference_image_path=valid_inference_path.value,
+    document = build_image_document_with_extracted_text(
+        image_path=image_path,
+        ocr_text_extractor=ocr_text_extractor,
+        image_captioner=image_captioner,
         image_dense_encoder=image_dense_encoder,
         sparse_encoder=sparse_encoder,
-        image_index=image_index,
-        ocr_text=extracted_text.ocr_text,
-        caption=extracted_text.caption,
+        inference_image_path=inference_image_path,
     )
+    image_index.upsert([document])
+    return document
 
 
 def search_images(

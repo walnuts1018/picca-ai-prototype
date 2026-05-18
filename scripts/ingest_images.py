@@ -9,7 +9,8 @@ from typing import Iterator
 from PIL import Image, ImageOps
 from qdrant_client import QdrantClient
 
-from picca_search.application import ingest_image_with_extracted_text
+from picca_search.application import build_image_document_with_extracted_text
+from picca_search.domain import ImageDocument
 from picca_search.domain import SUPPORTED_IMAGE_EXTENSIONS
 from picca_search.infrastructure.embedding_models import (
     SpladeJapaneseSparseEncoder,
@@ -87,15 +88,49 @@ def ingest_image(
     image_index: QdrantImageIndex,
 ):
     with prepare_inference_image(image_path) as inference_image_path:
-        return ingest_image_with_extracted_text(
+        return build_image_document_with_extracted_text(
             image_path=image_path,
             inference_image_path=inference_image_path,
             ocr_text_extractor=ocr_text_extractor,
             image_captioner=image_captioner,
             image_dense_encoder=image_dense_encoder,
             sparse_encoder=sparse_encoder,
+        )
+
+
+def ingest_images(
+    *,
+    image_paths: list[Path],
+    ocr_text_extractor: PaddleOcrVlTextExtractor,
+    image_captioner: Florence2Captioner,
+    image_dense_encoder: WaonSiglipEncoder,
+    sparse_encoder: SpladeJapaneseSparseEncoder,
+    image_index: QdrantImageIndex,
+    batch_size: int,
+) -> list[ImageDocument]:
+    if batch_size < 1:
+        raise ValueError("Batch size must be greater than zero")
+
+    documents: list[ImageDocument] = []
+    batch: list[ImageDocument] = []
+    for image_path in image_paths:
+        document = ingest_image(
+            image_path=image_path,
+            ocr_text_extractor=ocr_text_extractor,
+            image_captioner=image_captioner,
+            image_dense_encoder=image_dense_encoder,
+            sparse_encoder=sparse_encoder,
             image_index=image_index,
         )
+        documents.append(document)
+        batch.append(document)
+        if len(batch) >= batch_size:
+            image_index.upsert(batch)
+            batch = []
+
+    if len(batch) > 0:
+        image_index.upsert(batch)
+    return documents
 
 
 def main() -> None:
@@ -107,6 +142,7 @@ def main() -> None:
     parser.add_argument("--sparse-device", choices=DEVICE_CHOICES)
     parser.add_argument("--caption-device", choices=DEVICE_CHOICES)
     parser.add_argument("--ocr-device", choices=DEVICE_CHOICES)
+    parser.add_argument("--batch-size", type=int, default=16)
     args = parser.parse_args()
 
     images = sorted(
@@ -123,15 +159,16 @@ def main() -> None:
     image_captioner = Florence2Captioner(device=args.caption_device)
     index = QdrantImageIndex(QdrantClient(url=args.qdrant_url), args.collection)
 
-    for image_path in images:
-        document = ingest_image(
-            image_path=image_path,
-            ocr_text_extractor=ocr_text_extractor,
-            image_captioner=image_captioner,
-            image_dense_encoder=dense_encoder,
-            sparse_encoder=sparse_encoder,
-            image_index=index,
-        )
+    documents = ingest_images(
+        image_paths=images,
+        ocr_text_extractor=ocr_text_extractor,
+        image_captioner=image_captioner,
+        image_dense_encoder=dense_encoder,
+        sparse_encoder=sparse_encoder,
+        image_index=index,
+        batch_size=args.batch_size,
+    )
+    for document in documents:
         print(f"indexed\t{document.image_id.value}\t{document.image_path.value}")
 
 

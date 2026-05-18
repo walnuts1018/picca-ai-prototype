@@ -5,6 +5,7 @@ import json
 
 from qdrant_client import QdrantClient
 
+from picca_search.application import search_images as run_search
 from picca_search.infrastructure.embedding_models import (
     SpladeJapaneseSparseEncoder,
     WaonSiglipEncoder,
@@ -37,6 +38,21 @@ def main() -> None:
     dense_encoder = WaonSiglipEncoder(device=args.dense_device)
     sparse_encoder = SpladeJapaneseSparseEncoder(device=args.sparse_device)
     index = QdrantImageIndex(QdrantClient(url=args.qdrant_url), args.collection)
+
+    if not args.explain and not args.json:
+        results = run_search(
+            query_text=args.query,
+            text_dense_encoder=dense_encoder,
+            sparse_encoder=sparse_encoder,
+            image_index=index,
+            limit=args.limit,
+        )
+        for result in results:
+            print(
+                f"{result.score:.6f}\t{result.payload.get('path', '')}\t"
+                f"{result.payload.get('text', '')}"
+            )
+        return
 
     query_dense = dense_encoder.encode_text(args.query)
     query_sparse = sparse_encoder.encode_text(args.query)

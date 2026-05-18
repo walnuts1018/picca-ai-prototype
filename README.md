@@ -23,6 +23,7 @@ uv run --group vision python scripts/ingest_images.py ./images --collection picc
 
 各モデルは `--dense-device`, `--sparse-device`, `--caption-device`, `--ocr-device` で
 `cuda` / `mps` / `cpu` を個別指定できます。未指定時は各モデルの自動選択を使います。
+Qdrant への登録は `--batch-size` 件ごとにまとめて upsert します。既定値は `16` です。
 
 ## Search
 
@@ -31,6 +32,8 @@ uv run python scripts/search_images.py "赤い鳥居が写っている写真" --
 ```
 
 検索時も `--dense-device`, `--sparse-device` で個別指定できます。未指定時は自動選択です。
+通常検索は Qdrant の fusion query を使う高速経路を通ります。`--explain` と `--json` は
+dense / sparse の個別順位を出すため、診断用の追加クエリを実行します。
 
 ## Architecture
 

@@ -84,9 +84,13 @@ class QdrantImageIndex:
     def __init__(self, client: QdrantClient, collection_name: str) -> None:
         self.client = client
         self.collection_name = collection_name
+        self._collection_ready = False
 
     def ensure_collection(self, dense_vector_size: int) -> None:
+        if self._collection_ready:
+            return
         if self.client.collection_exists(self.collection_name):
+            self._collection_ready = True
             return
         self.client.create_collection(
             collection_name=self.collection_name,
@@ -102,6 +106,7 @@ class QdrantImageIndex:
                 )
             },
         )
+        self._collection_ready = True
 
     def upsert(self, documents: list[ImageDocument]) -> None:
         if len(documents) == 0:
@@ -118,7 +123,15 @@ class QdrantImageIndex:
         query_sparse: SparseVector,
         limit: int,
     ) -> list[SearchResult]:
-        return self.search_with_diagnostics(query_dense, query_sparse, limit).fused
+        response = self.client.query_points(
+            collection_name=self.collection_name,
+            prefetch=prefetches_from_query(query_dense, query_sparse, limit),
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=limit,
+            with_payload=True,
+        )
+        points = getattr(response, "points", response)
+        return [search_result_from_scored_point(point) for point in points]
 
     def search_with_diagnostics(
         self,
