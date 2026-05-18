@@ -94,6 +94,31 @@ class SpladeJapaneseSparseEncoder:
             return SparseVector.create([unknown_token_id], [1.0])
         return SparseVector.create(indices, values)
 
+    def encode_texts(self, texts: list[str]) -> list[SparseVector]:
+        if not texts:
+            return []
+        inputs = self.tokenizer(
+            texts, return_tensors="pt", padding=True, truncation=True
+        ).to(self.device)
+        with self.torch.no_grad():
+            logits = self.model(**inputs).logits
+            weights = self.torch.log1p(self.torch.relu(logits))
+            weights = weights * inputs["attention_mask"].unsqueeze(-1)
+            pooled = self.torch.max(weights, dim=1).values
+        results: list[SparseVector] = []
+        for i in range(len(texts)):
+            vector = pooled[i]
+            values, indices = self.torch.topk(vector, k=min(self.top_k, vector.shape[0]))
+            non_zero = values > 0
+            values = values[non_zero].detach().cpu().tolist()
+            indices = indices[non_zero].detach().cpu().tolist()
+            if len(indices) == 0:
+                unknown_token_id = self.tokenizer.unk_token_id or 0
+                results.append(SparseVector.create([unknown_token_id], [1.0]))
+            else:
+                results.append(SparseVector.create(indices, values))
+        return results
+
 
 def _normalized_values(torch, tensor) -> list[float]:
     normalized = tensor / tensor.norm(dim=-1, keepdim=True).clamp(min=1e-12)
