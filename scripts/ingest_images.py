@@ -176,8 +176,9 @@ def ingest_images(
         batch_size=batch_size,
     )
     documents: list[ImageDocument] = []
+    total = len(image_paths)
 
-    for image_path in image_paths:
+    for i, image_path in enumerate(image_paths, 1):
         with prepare_inference_image(image_path) as inference_path:
             ocr_text = ocr_text_extractor.extract_text(inference_path)
             caption = image_captioner.caption(inference_path)
@@ -188,11 +189,17 @@ def ingest_images(
             batch_docs = accumulator.flush()
             image_index.upsert(batch_docs)
             documents.extend(batch_docs)
+            for doc in batch_docs:
+                print(f"indexed\t{doc.image_id.value}\t{doc.image_path.value}")
+
+        print(f"[{i}/{total}] {image_path.name}", flush=True)
 
     remaining = accumulator.flush()
     if remaining:
         image_index.upsert(remaining)
         documents.extend(remaining)
+        for doc in remaining:
+            print(f"indexed\t{doc.image_id.value}\t{doc.image_path.value}")
 
     return documents
 
@@ -223,7 +230,7 @@ def main() -> None:
     image_captioner = Florence2Captioner(device=args.caption_device)
     index = QdrantImageIndex(QdrantClient(url=args.qdrant_url), args.collection)
 
-    documents = ingest_images(
+    ingest_images(
         image_paths=images,
         ocr_text_extractor=ocr_text_extractor,
         image_captioner=image_captioner,
@@ -232,8 +239,6 @@ def main() -> None:
         image_index=index,
         batch_size=args.batch_size,
     )
-    for document in documents:
-        print(f"indexed\t{document.image_id.value}\t{document.image_path.value}")
 
 
 if __name__ == "__main__":
