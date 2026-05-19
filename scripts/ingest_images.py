@@ -120,17 +120,25 @@ class IngestionBatchAccumulator:
         pending = self.pending
         self.pending = []
         images = [p.image for p in pending]
-        texts = [p.extracted_text.combined for p in pending]
+        ocr_texts = [p.extracted_text.ocr_text for p in pending]
+        florence_texts = [
+            p.extracted_text.caption if p.extracted_text.caption != "" else p.extracted_text.combined
+            for p in pending
+        ]
+        florence_sparse_vectors = self.sparse.encode_texts(florence_texts)
         dense_vectors = self.encoder.encode_images(images)
-        sparse_vectors = self.sparse.encode_texts(texts)
+        ocr_sparse_vectors = self.sparse.encode_texts([text for text in ocr_texts if text != ""])
         documents: list[ImageDocument] = []
-        for p, dense, sparse, text in zip(pending, dense_vectors, sparse_vectors, texts):
+        next_ocr_sparse = iter(ocr_sparse_vectors)
+        for p, dense, florence_sparse in zip(pending, dense_vectors, florence_sparse_vectors):
+            ocr_sparse = next(next_ocr_sparse) if p.extracted_text.ocr_text != "" else None
             doc = ImageDocument.create(
                 image_id=ImageId.from_path(p.image_path),
                 image_path=ImagePath.create(p.image_path),
                 dense_vector=dense,
-                sparse_vector=sparse,
-                text=text,
+                florence_sparse_vector=florence_sparse,
+                text=p.extracted_text.combined,
+                ocr_sparse_vector=ocr_sparse,
                 ocr_text=p.extracted_text.ocr_text,
                 caption=p.extracted_text.caption,
             )

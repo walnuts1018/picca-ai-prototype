@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument(
         "--explain",
         action="store_true",
-        help="Print dense/sparse ranks and RRF contributions for each result.",
+        help="Print dense/ocr/florence ranks and weighted RRF contributions for each result.",
     )
     parser.add_argument(
         "--json",
@@ -56,7 +56,7 @@ def main() -> None:
 
     query_dense = dense_encoder.encode_text(args.query)
     query_sparse = sparse_encoder.encode_text(args.query)
-    diagnostics = index.search_with_diagnostics(query_dense, query_sparse, args.limit)
+    diagnostics = index.search_with_diagnostics(query_dense, query_sparse, query_sparse, args.limit)
 
     if args.json:
         def _encode_result(result):
@@ -72,7 +72,8 @@ def main() -> None:
                     "query": args.query,
                     "limit": args.limit,
                     "dense": [_encode_result(result) for result in diagnostics.dense],
-                    "sparse": [_encode_result(result) for result in diagnostics.sparse],
+                    "ocr": [_encode_result(result) for result in diagnostics.ocr],
+                    "florence": [_encode_result(result) for result in diagnostics.florence],
                     "fused": [_encode_result(result) for result in diagnostics.fused],
                 },
                 ensure_ascii=False,
@@ -82,18 +83,22 @@ def main() -> None:
         return
 
     dense_ranks = {result.image_id.value: result for result in diagnostics.dense}
-    sparse_ranks = {result.image_id.value: result for result in diagnostics.sparse}
+    ocr_ranks = {result.image_id.value: result for result in diagnostics.ocr}
+    florence_ranks = {result.image_id.value: result for result in diagnostics.florence}
 
     for result in diagnostics.fused:
         dense_result = dense_ranks.get(result.image_id.value)
-        sparse_result = sparse_ranks.get(result.image_id.value)
-        dense_score = 1.0 / (1 + dense_result.rank) if dense_result is not None else 0.0
-        sparse_score = 1.0 / (1 + sparse_result.rank) if sparse_result is not None else 0.0
+        ocr_result = ocr_ranks.get(result.image_id.value)
+        florence_result = florence_ranks.get(result.image_id.value)
+        dense_score = 2.0 / (1 + dense_result.rank) if dense_result is not None else 0.0
+        ocr_score = 4.0 / (1 + ocr_result.rank) if ocr_result is not None else 0.0
+        florence_score = 1.0 / (1 + florence_result.rank) if florence_result is not None else 0.0
         if args.explain:
             print(
                 f"{result.score:.6f}\t"
                 f"dense={dense_score:.6f}@{dense_result.rank if dense_result else '-'}\t"
-                f"sparse={sparse_score:.6f}@{sparse_result.rank if sparse_result else '-'}\t"
+                f"ocr={ocr_score:.6f}@{ocr_result.rank if ocr_result else '-'}\t"
+                f"florence={florence_score:.6f}@{florence_result.rank if florence_result else '-'}\t"
                 f"{result.payload.get('path', '')}\t"
                 f"{result.payload.get('text', '')}"
             )

@@ -119,8 +119,9 @@ class ImageDocument:
     image_id: ImageId
     image_path: ImagePath
     dense_vector: DenseVector
-    sparse_vector: SparseVector
+    florence_sparse_vector: SparseVector
     text: str
+    ocr_sparse_vector: SparseVector | None = None
     ocr_text: str = ""
     caption: str = ""
 
@@ -130,8 +131,9 @@ class ImageDocument:
         image_id: ImageId,
         image_path: ImagePath,
         dense_vector: DenseVector,
-        sparse_vector: SparseVector,
+        florence_sparse_vector: SparseVector,
         text: str,
+        ocr_sparse_vector: SparseVector | None = None,
         ocr_text: str = "",
         caption: str = "",
     ) -> "ImageDocument":
@@ -139,8 +141,9 @@ class ImageDocument:
             image_id=image_id,
             image_path=image_path,
             dense_vector=dense_vector,
-            sparse_vector=sparse_vector,
+            florence_sparse_vector=florence_sparse_vector,
             text=text.strip(),
+            ocr_sparse_vector=ocr_sparse_vector,
             ocr_text=ocr_text.strip(),
             caption=caption.strip(),
         )

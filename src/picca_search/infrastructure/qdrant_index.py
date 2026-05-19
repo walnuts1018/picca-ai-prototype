@@ -8,7 +8,11 @@ from picca_search.domain import DenseVector, ImageDocument, ImageId, SearchResul
 
 
 DENSE_VECTOR_NAME = "dense"
-SPARSE_VECTOR_NAME = "sparse"
+OCR_SPARSE_VECTOR_NAME = "ocr_sparse"
+FLORENCE_SPARSE_VECTOR_NAME = "florence_sparse"
+OCR_WEIGHT = 4.0
+DENSE_WEIGHT = 2.0
+FLORENCE_WEIGHT = 1.0
 RRF_K = 1
 
 
@@ -24,26 +28,34 @@ class RankedSearchResult:
 class SearchDiagnostics:
     fused: list[SearchResult]
     dense: list[RankedSearchResult]
-    sparse: list[RankedSearchResult]
+    ocr: list[RankedSearchResult]
+    florence: list[RankedSearchResult]
 
 
 def point_from_document(document: ImageDocument) -> models.PointStruct:
+    vector: dict[str, list[float] | models.SparseVector] = {
+        DENSE_VECTOR_NAME: list(document.dense_vector.values),
+        FLORENCE_SPARSE_VECTOR_NAME: models.SparseVector(
+            indices=list(document.florence_sparse_vector.indices),
+            values=list(document.florence_sparse_vector.values),
+        ),
+    }
+    if document.ocr_sparse_vector is not None:
+        vector[OCR_SPARSE_VECTOR_NAME] = models.SparseVector(
+            indices=list(document.ocr_sparse_vector.indices),
+            values=list(document.ocr_sparse_vector.values),
+        )
     return models.PointStruct(
         id=document.image_id.value,
-        vector={
-            DENSE_VECTOR_NAME: list(document.dense_vector.values),
-            SPARSE_VECTOR_NAME: models.SparseVector(
-                indices=list(document.sparse_vector.indices),
-                values=list(document.sparse_vector.values),
-            ),
-        },
+        vector=vector,
         payload=document.payload,
     )
 
 
 def prefetches_from_query(
     query_dense: DenseVector,
-    query_sparse: SparseVector,
+    query_ocr_sparse: SparseVector,
+    query_florence_sparse: SparseVector,
     limit: int,
 ) -> list[models.Prefetch]:
     return [
@@ -54,10 +66,18 @@ def prefetches_from_query(
         ),
         models.Prefetch(
             query=models.SparseVector(
-                indices=list(query_sparse.indices),
-                values=list(query_sparse.values),
+                indices=list(query_ocr_sparse.indices),
+                values=list(query_ocr_sparse.values),
             ),
-            using=SPARSE_VECTOR_NAME,
+            using=OCR_SPARSE_VECTOR_NAME,
+            limit=limit,
+        ),
+        models.Prefetch(
+            query=models.SparseVector(
+                indices=list(query_florence_sparse.indices),
+                values=list(query_florence_sparse.values),
+            ),
+            using=FLORENCE_SPARSE_VECTOR_NAME,
             limit=limit,
         ),
     ]
@@ -107,7 +127,10 @@ class QdrantImageIndex:
                 )
             ),
             sparse_vectors_config={
-                SPARSE_VECTOR_NAME: models.SparseVectorParams(
+                OCR_SPARSE_VECTOR_NAME: models.SparseVectorParams(
+                    index=models.SparseIndexParams(on_disk=False)
+                ),
+                FLORENCE_SPARSE_VECTOR_NAME: models.SparseVectorParams(
                     index=models.SparseIndexParams(on_disk=False)
                 )
             },
@@ -126,13 +149,19 @@ class QdrantImageIndex:
     def search(
         self,
         query_dense: DenseVector,
-        query_sparse: SparseVector,
+        query_ocr_sparse: SparseVector,
+        query_florence_sparse: SparseVector,
         limit: int,
     ) -> list[SearchResult]:
         response = self.client.query_points(
             collection_name=self.collection_name,
-            prefetch=prefetches_from_query(query_dense, query_sparse, limit),
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            prefetch=prefetches_from_query(query_dense, query_ocr_sparse, query_florence_sparse, limit),
+            query=models.RrfQuery(
+                rrf=models.Rrf(
+                    k=RRF_K,
+                    weights=[DENSE_WEIGHT, OCR_WEIGHT, FLORENCE_WEIGHT],
+                )
+            ),
             limit=limit,
             with_payload=True,
         )
@@ -142,7 +171,8 @@ class QdrantImageIndex:
     def search_with_diagnostics(
         self,
         query_dense: DenseVector,
-        query_sparse: SparseVector,
+        query_ocr_sparse: SparseVector,
+        query_florence_sparse: SparseVector,
         limit: int,
     ) -> SearchDiagnostics:
         dense_response = self.client.query_points(
@@ -152,47 +182,61 @@ class QdrantImageIndex:
             limit=limit,
             with_payload=True,
         )
-        sparse_response = self.client.query_points(
+        ocr_response = self.client.query_points(
             collection_name=self.collection_name,
             query=models.SparseVector(
-                indices=list(query_sparse.indices),
-                values=list(query_sparse.values),
+                indices=list(query_ocr_sparse.indices),
+                values=list(query_ocr_sparse.values),
             ),
-            using=SPARSE_VECTOR_NAME,
+            using=OCR_SPARSE_VECTOR_NAME,
+            limit=limit,
+            with_payload=True,
+        )
+        florence_response = self.client.query_points(
+            collection_name=self.collection_name,
+            query=models.SparseVector(
+                indices=list(query_florence_sparse.indices),
+                values=list(query_florence_sparse.values),
+            ),
+            using=FLORENCE_SPARSE_VECTOR_NAME,
             limit=limit,
             with_payload=True,
         )
         dense_points = getattr(dense_response, "points", dense_response)
-        sparse_points = getattr(sparse_response, "points", sparse_response)
+        ocr_points = getattr(ocr_response, "points", ocr_response)
+        florence_points = getattr(florence_response, "points", florence_response)
         dense = [ranked_result_from_scored_point(point, rank=idx + 1) for idx, point in enumerate(dense_points)]
-        sparse = [ranked_result_from_scored_point(point, rank=idx + 1) for idx, point in enumerate(sparse_points)]
+        ocr = [ranked_result_from_scored_point(point, rank=idx + 1) for idx, point in enumerate(ocr_points)]
+        florence = [
+            ranked_result_from_scored_point(point, rank=idx + 1)
+            for idx, point in enumerate(florence_points)
+        ]
 
         fused_scores: dict[str, SearchResult] = {}
-        for result in dense:
-            fused_scores[result.image_id.value] = SearchResult(
-                image_id=result.image_id,
-                score=1.0 / (RRF_K + result.rank),
-                payload=result.payload,
-            )
-        for result in sparse:
-            existing = fused_scores.get(result.image_id.value)
-            contribution = 1.0 / (RRF_K + result.rank)
-            if existing is None:
-                fused_scores[result.image_id.value] = SearchResult(
-                    image_id=result.image_id,
-                    score=contribution,
-                    payload=result.payload,
-                )
-            else:
-                fused_scores[result.image_id.value] = SearchResult(
-                    image_id=existing.image_id,
-                    score=existing.score + contribution,
-                    payload=existing.payload,
-                )
+        for results, weight in (
+            (dense, DENSE_WEIGHT),
+            (ocr, OCR_WEIGHT),
+            (florence, FLORENCE_WEIGHT),
+        ):
+            for result in results:
+                existing = fused_scores.get(result.image_id.value)
+                contribution = weight / (RRF_K + result.rank)
+                if existing is None:
+                    fused_scores[result.image_id.value] = SearchResult(
+                        image_id=result.image_id,
+                        score=contribution,
+                        payload=result.payload,
+                    )
+                else:
+                    fused_scores[result.image_id.value] = SearchResult(
+                        image_id=existing.image_id,
+                        score=existing.score + contribution,
+                        payload=existing.payload,
+                    )
 
         fused = sorted(
             fused_scores.values(),
             key=lambda result: result.score,
             reverse=True,
         )[:limit]
-        return SearchDiagnostics(fused=fused, dense=dense, sparse=sparse)
+        return SearchDiagnostics(fused=fused, dense=dense, ocr=ocr, florence=florence)

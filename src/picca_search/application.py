@@ -41,7 +41,8 @@ class ImageIndex(Protocol):
     def search(
         self,
         query_dense: DenseVector,
-        query_sparse: SparseVector,
+        query_ocr_sparse: SparseVector,
+        query_florence_sparse: SparseVector,
         limit: int,
     ) -> list[SearchResult]: ...
 
@@ -60,14 +61,19 @@ def build_image_document(
         inference_image_path if inference_image_path is not None else valid_path.value
     )
     normalized_text = text.strip()
+    normalized_ocr = ocr_text.strip()
+    normalized_caption = caption.strip()
     document = ImageDocument.create(
         image_id=ImageId.from_path(valid_path.value),
         image_path=valid_path,
         dense_vector=image_dense_encoder.encode_image(valid_inference_path.value),
-        sparse_vector=sparse_encoder.encode_text(normalized_text),
+        florence_sparse_vector=sparse_encoder.encode_text(normalized_caption or normalized_text),
         text=normalized_text,
-        ocr_text=ocr_text,
-        caption=caption,
+        ocr_sparse_vector=(
+            sparse_encoder.encode_text(normalized_ocr) if normalized_ocr != "" else None
+        ),
+        ocr_text=normalized_ocr,
+        caption=normalized_caption,
     )
     return document
 
@@ -155,4 +161,4 @@ def search_images(
         raise ValueError("Search limit must be greater than zero")
     query_dense = text_dense_encoder.encode_text(query.text)
     query_sparse = sparse_encoder.encode_text(query.text)
-    return image_index.search(query_dense, query_sparse, limit)
+    return image_index.search(query_dense, query_sparse, query_sparse, limit)
