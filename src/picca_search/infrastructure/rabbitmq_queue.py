@@ -30,12 +30,24 @@ class QueueDelivery:
 
 
 class RabbitMqImageJobQueue:
-    def __init__(self, amqp_url: str, queue_name: str) -> None:
+    def __init__(self, amqp_url: str, queue_name: str, max_retries: int = 5, retry_delay: float = 2.0) -> None:
         self.parameters = pika.URLParameters(amqp_url)
-        self.connection = pika.BlockingConnection(self.parameters)
-        self.channel = self.connection.channel()
         self.queue_name = queue_name
-        self.channel.queue_declare(queue=queue_name, durable=True)
+        
+        last_exception = None
+        for attempt in range(max_retries):
+            try:
+                self.connection = pika.BlockingConnection(self.parameters)
+                self.channel = self.connection.channel()
+                self.channel.queue_declare(queue=queue_name, durable=True)
+                return
+            except pika.exceptions.AMQPConnectionError as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                continue
+        
+        raise last_exception or ConnectionError("Failed to connect to RabbitMQ")
 
     def publish(self, message: ImageJobMessage) -> None:
         self.channel.basic_publish(
