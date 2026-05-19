@@ -62,6 +62,7 @@ services:
     build:
       context: .
       dockerfile: model.Dockerfile
+    platform: linux/amd64
     command: [ "uv", "run", "python", "scripts/run_dense_service.py" ]
     environment:
       PORT: 8001
@@ -73,6 +74,7 @@ services:
     build:
       context: .
       dockerfile: model.Dockerfile
+    platform: linux/amd64
     command: [ "uv", "run", "python", "scripts/run_sparse_service.py" ]
     environment:
       PORT: 8002
@@ -84,6 +86,7 @@ services:
     build:
       context: .
       dockerfile: model.Dockerfile
+    platform: linux/amd64
     command: [ "uv", "run", "python", "scripts/run_ocr_service.py" ]
     environment:
       PORT: 8003
@@ -95,6 +98,7 @@ services:
     build:
       context: .
       dockerfile: model.Dockerfile
+    platform: linux/amd64
     command: [ "uv", "run", "python", "scripts/run_caption_service.py" ]
     environment:
       PORT: 8004

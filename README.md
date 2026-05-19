@@ -9,8 +9,9 @@
 - `sparse-service`: light-SPLADE Japanese
 - `ocr-service`: PaddleOCR-VL
 - `caption-service`: Florence-2 + CAT-Translate
+
 - `rabbitmq`: image job queue
-- `seaweedfs-s3`: S3 互換オブジェクトストレージ
+- `seaweedfs`: S3 互換オブジェクトストレージ
 - `qdrant`: ベクトル検索
 
 ## Local Run
