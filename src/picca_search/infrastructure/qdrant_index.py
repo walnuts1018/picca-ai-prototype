@@ -10,10 +10,11 @@ from picca_search.domain import DenseVector, ImageDocument, ImageId, SearchResul
 DENSE_VECTOR_NAME = "dense"
 OCR_SPARSE_VECTOR_NAME = "ocr_sparse"
 FLORENCE_SPARSE_VECTOR_NAME = "florence_sparse"
-OCR_WEIGHT = 4.0
-DENSE_WEIGHT = 2.0
+DENSE_WEIGHT = 3.0
+OCR_WEIGHT = 2.0
 FLORENCE_WEIGHT = 1.0
 RRF_K = 1
+RRF_WEIGHTS = (DENSE_WEIGHT, OCR_WEIGHT, FLORENCE_WEIGHT)
 
 
 @dataclass(frozen=True)
@@ -159,7 +160,7 @@ class QdrantImageIndex:
             query=models.RrfQuery(
                 rrf=models.Rrf(
                     k=RRF_K,
-                    weights=[DENSE_WEIGHT, OCR_WEIGHT, FLORENCE_WEIGHT],
+                    weights=list(RRF_WEIGHTS),
                 )
             ),
             limit=limit,
@@ -213,11 +214,7 @@ class QdrantImageIndex:
         ]
 
         fused_scores: dict[str, SearchResult] = {}
-        for results, weight in (
-            (dense, DENSE_WEIGHT),
-            (ocr, OCR_WEIGHT),
-            (florence, FLORENCE_WEIGHT),
-        ):
+        for results, weight in zip((dense, ocr, florence), RRF_WEIGHTS, strict=True):
             for result in results:
                 existing = fused_scores.get(result.image_id.value)
                 contribution = weight / (RRF_K + result.rank)

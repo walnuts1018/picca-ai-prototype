@@ -10,7 +10,13 @@ from picca_search.infrastructure.embedding_models import (
     SpladeJapaneseSparseEncoder,
     WaonSiglipEncoder,
 )
-from picca_search.infrastructure.qdrant_index import QdrantImageIndex
+from picca_search.infrastructure.qdrant_index import (
+    DENSE_WEIGHT,
+    FLORENCE_WEIGHT,
+    OCR_WEIGHT,
+    RRF_K,
+    QdrantImageIndex,
+)
 
 DEVICE_CHOICES = ("cuda", "mps", "cpu")
 
@@ -90,9 +96,11 @@ def main() -> None:
         dense_result = dense_ranks.get(result.image_id.value)
         ocr_result = ocr_ranks.get(result.image_id.value)
         florence_result = florence_ranks.get(result.image_id.value)
-        dense_score = 2.0 / (1 + dense_result.rank) if dense_result is not None else 0.0
-        ocr_score = 4.0 / (1 + ocr_result.rank) if ocr_result is not None else 0.0
-        florence_score = 1.0 / (1 + florence_result.rank) if florence_result is not None else 0.0
+        dense_score = DENSE_WEIGHT / (RRF_K + dense_result.rank) if dense_result is not None else 0.0
+        ocr_score = OCR_WEIGHT / (RRF_K + ocr_result.rank) if ocr_result is not None else 0.0
+        florence_score = (
+            FLORENCE_WEIGHT / (RRF_K + florence_result.rank) if florence_result is not None else 0.0
+        )
         if args.explain:
             print(
                 f"{result.score:.6f}\t"

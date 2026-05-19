@@ -75,10 +75,19 @@ class SpladeJapaneseSparseEncoder:
         self.top_k = top_k
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForMaskedLM.from_pretrained(model_name).to(self.device)
+        self.max_length = _resolve_sparse_max_length(
+            tokenizer_max_length=getattr(self.tokenizer, "model_max_length", None),
+            model_max_length=getattr(self.model.config, "max_position_embeddings", None),
+        )
         self.model.eval()
 
     def encode_text(self, text: str) -> SparseVector:
-        inputs = self.tokenizer(text, return_tensors="pt", truncation=True).to(self.device)
+        inputs = self.tokenizer(
+            text,
+            return_tensors="pt",
+            truncation=True,
+            max_length=self.max_length,
+        ).to(self.device)
         with self.torch.no_grad():
             logits = self.model(**inputs).logits
             weights = self.torch.log1p(self.torch.relu(logits))
@@ -98,7 +107,11 @@ class SpladeJapaneseSparseEncoder:
         if not texts:
             return []
         inputs = self.tokenizer(
-            texts, return_tensors="pt", padding=True, truncation=True
+            texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
         ).to(self.device)
         with self.torch.no_grad():
             logits = self.model(**inputs).logits
@@ -123,3 +136,17 @@ class SpladeJapaneseSparseEncoder:
 def _normalized_values(torch, tensor) -> list[float]:
     normalized = tensor / tensor.norm(dim=-1, keepdim=True).clamp(min=1e-12)
     return normalized.squeeze(0).detach().cpu().tolist()
+
+
+def _resolve_sparse_max_length(
+    *, tokenizer_max_length: int | None, model_max_length: int | None
+) -> int:
+    if model_max_length is not None and model_max_length > 0:
+        if tokenizer_max_length is None or tokenizer_max_length <= 0:
+            return int(model_max_length)
+        return int(min(tokenizer_max_length, model_max_length))
+
+    if tokenizer_max_length is not None and tokenizer_max_length > 0:
+        return int(tokenizer_max_length)
+
+    raise ValueError("Unable to determine max token length for sparse encoder")
