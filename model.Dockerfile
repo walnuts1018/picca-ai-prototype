@@ -17,6 +17,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python:3.12-slim AS runtime
 
+RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get -y update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0
+
 WORKDIR /app
 
 COPY --from=builder /app /app

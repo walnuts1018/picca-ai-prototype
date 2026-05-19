@@ -18,15 +18,14 @@ services:
 
   seaweedfs:
     image: chrislusf/seaweedfs:4.26
-    command: "master -ip=seaweedfs-master -mdir=/data"
     ports:
-      - "9333:9333"
+      - "8333:8333"
     environment:
       AWS_ACCESS_KEY_ID: seaweedfs
       AWS_SECRET_ACCESS_KEY: seaweedfs
       S3_BUCKET: images
     volumes:
-      - seaweedfs_master:/data
+      - seaweedfs_storage:/data
 
   gateway:
     build:
@@ -63,7 +62,7 @@ services:
       context: .
       dockerfile: model.Dockerfile
     platform: linux/amd64
-    command: [ "uv", "run", "python", "scripts/run_dense_service.py" ]
+    command: [ "python", "scripts/run_dense_service.py" ]
     environment:
       PORT: 8001
       MODEL_DEVICE: cpu
@@ -75,7 +74,7 @@ services:
       context: .
       dockerfile: model.Dockerfile
     platform: linux/amd64
-    command: [ "uv", "run", "python", "scripts/run_sparse_service.py" ]
+    command: [ "python", "scripts/run_sparse_service.py" ]
     environment:
       PORT: 8002
       MODEL_DEVICE: cpu
@@ -87,7 +86,7 @@ services:
       context: .
       dockerfile: model.Dockerfile
     platform: linux/amd64
-    command: [ "uv", "run", "python", "scripts/run_ocr_service.py" ]
+    command: [ "python", "scripts/run_ocr_service.py" ]
     environment:
       PORT: 8003
       MODEL_DEVICE: cpu
@@ -99,7 +98,7 @@ services:
       context: .
       dockerfile: model.Dockerfile
     platform: linux/amd64
-    command: [ "uv", "run", "python", "scripts/run_caption_service.py" ]
+    command: [ "python", "scripts/run_caption_service.py" ]
     environment:
       PORT: 8004
       MODEL_DEVICE: cpu
@@ -108,5 +107,4 @@ services:
 
 volumes:
   qdrant_storage:
-  seaweedfs_master:
-  seaweedfs_volume:
+  seaweedfs_storage:
