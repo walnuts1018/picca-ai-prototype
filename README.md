@@ -19,7 +19,7 @@
 docker compose up --build
 ```
 
-デフォルトの Compose は全モデルを `MODEL_DEVICE=cpu` で起動します。モデル単位で CUDA に切り替えたい場合は、対象サービスの image / Dockerfile を `Dockerfile.model.cuda` ベースに差し替え、`MODEL_DEVICE=cuda` を指定してください。
+デフォルトの Compose は全モデルを `MODEL_DEVICE=cpu` で起動します。モデル単位で CUDA に切り替えたい場合は、対象サービスの image / Dockerfile を `model-cuda.Dockerfile` ベースに差し替え、`MODEL_DEVICE=cuda` を指定してください。
 
 ## Upload + Publish
 

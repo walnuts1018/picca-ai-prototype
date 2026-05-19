@@ -40,8 +40,8 @@
 | `scripts/publish_directory_to_queue.py` | Create | Bulk upload local images to SeaweedFS and publish RabbitMQ jobs |
 | `scripts/search_api_client.py` | Create | Simple CLI client for `POST /search` |
 | `compose.yaml` | Modify | Add RabbitMQ, SeaweedFS, gateway, and model services |
-| `Dockerfile.gateway` | Create | Gateway image |
-| `Dockerfile.model` | Create | Shared model-service image build with CPU/CUDA variants via build args |
+| `gateway.Dockerfile` | Create | Gateway image |
+| `model.Dockerfile` | Create | Shared model-service image build with CPU/CUDA variants via build args |
 | `README.md` | Modify | Update local run instructions and service topology |
 | `tests/test_domain_runtime.py` | Create | S3 key identity and logical image path tests |
 | `tests/test_qdrant_weights.py` | Create | Runtime weight override tests |
@@ -54,6 +54,7 @@
 ### Task 1: Refactor Domain Types for Service Runtime
 
 **Files:**
+
 - Modify: `src/picca_search/domain.py`
 - Modify: `src/picca_search/application.py`
 - Create: `tests/test_domain_runtime.py`
@@ -139,6 +140,7 @@ git commit -m "refactor: support object-key based image identity"
 ### Task 2: Add Runtime Weight Overrides to Qdrant Search
 
 **Files:**
+
 - Modify: `src/picca_search/infrastructure/qdrant_index.py`
 - Create: `tests/test_qdrant_weights.py`
 
@@ -203,6 +205,7 @@ git commit -m "feat: allow runtime weight overrides in qdrant search"
 ### Task 3: Introduce Shared Image Preprocessing and Object Storage
 
 **Files:**
+
 - Create: `src/picca_search/infrastructure/image_preprocessing.py`
 - Create: `src/picca_search/infrastructure/object_storage.py`
 - Create: `tests/test_gateway_ingestion.py`
@@ -267,6 +270,7 @@ git commit -m "feat: add shared image preprocessing and object storage adapter"
 ### Task 4: Build Dense and Sparse Model Services
 
 **Files:**
+
 - Create: `src/picca_search/services/common.py`
 - Create: `src/picca_search/services/dense_api.py`
 - Create: `src/picca_search/services/sparse_api.py`
@@ -357,6 +361,7 @@ git commit -m "feat: add dense and sparse model services"
 ### Task 5: Build OCR and Caption Model Services
 
 **Files:**
+
 - Create: `src/picca_search/services/ocr_api.py`
 - Create: `src/picca_search/services/caption_api.py`
 - Create: `scripts/run_ocr_service.py`
@@ -428,6 +433,7 @@ git commit -m "feat: add ocr and caption model services"
 ### Task 6: Add Gateway HTTP Clients and Search API
 
 **Files:**
+
 - Create: `src/picca_search/infrastructure/model_client.py`
 - Create: `src/picca_search/gateway/schemas.py`
 - Create: `src/picca_search/gateway/search_api.py`
@@ -501,6 +507,7 @@ git commit -m "feat: add gateway search api and model clients"
 ### Task 7: Implement Queue-Driven Ingestion in the Gateway
 
 **Files:**
+
 - Create: `src/picca_search/infrastructure/rabbitmq_queue.py`
 - Create: `src/picca_search/gateway/ingestion.py`
 - Create: `src/picca_search/gateway/config.py`
@@ -578,9 +585,10 @@ git commit -m "feat: add queue-driven gateway ingestion runtime"
 ### Task 8: Add Compose, Docker, and Test Utility Scripts
 
 **Files:**
+
 - Modify: `compose.yaml`
-- Create: `Dockerfile.gateway`
-- Create: `Dockerfile.model`
+- Create: `gateway.Dockerfile`
+- Create: `model.Dockerfile`
 - Create: `scripts/publish_directory_to_queue.py`
 - Create: `scripts/search_api_client.py`
 - Create: `tests/test_publish_script.py`
@@ -629,7 +637,7 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: Dockerfile.gateway
+      dockerfile: gateway.Dockerfile
 ```
 
 ```dockerfile
@@ -671,7 +679,7 @@ Expected: PASS
 - [ ] **Step 8: Commit**
 
 ```bash
-git add pyproject.toml compose.yaml Dockerfile.gateway Dockerfile.model scripts/publish_directory_to_queue.py scripts/search_api_client.py README.md tests/test_publish_script.py
+git add pyproject.toml compose.yaml gateway.Dockerfile model.Dockerfile scripts/publish_directory_to_queue.py scripts/search_api_client.py README.md tests/test_publish_script.py
 git commit -m "feat: add deployment assets and test utility clients"
 ```
 

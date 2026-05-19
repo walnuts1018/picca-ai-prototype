@@ -31,7 +31,7 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: Dockerfile.gateway
+      dockerfile: gateway.Dockerfile
     depends_on:
       - qdrant
       - rabbitmq
@@ -61,7 +61,7 @@ services:
   dense-service:
     build:
       context: .
-      dockerfile: Dockerfile.model
+      dockerfile: model.Dockerfile
     command: [ "uv", "run", "python", "scripts/run_dense_service.py" ]
     environment:
       PORT: 8001
@@ -72,7 +72,7 @@ services:
   sparse-service:
     build:
       context: .
-      dockerfile: Dockerfile.model
+      dockerfile: model.Dockerfile
     command: [ "uv", "run", "python", "scripts/run_sparse_service.py" ]
     environment:
       PORT: 8002
@@ -83,7 +83,7 @@ services:
   ocr-service:
     build:
       context: .
-      dockerfile: Dockerfile.model
+      dockerfile: model.Dockerfile
     command: [ "uv", "run", "python", "scripts/run_ocr_service.py" ]
     environment:
       PORT: 8003
@@ -94,7 +94,7 @@ services:
   caption-service:
     build:
       context: .
-      dockerfile: Dockerfile.model
+      dockerfile: model.Dockerfile
     command: [ "uv", "run", "python", "scripts/run_caption_service.py" ]
     environment:
       PORT: 8004
