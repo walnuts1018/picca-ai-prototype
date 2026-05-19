@@ -62,12 +62,25 @@ def prepare_paddleocr(output_dir: Path) -> None:
     try:
         from paddleocr import PaddleOCRVL, TextDetection
         
-        logger.info(f"Initializing TextDetection model in {paddlex_home}...")
+        logger.info(f"Initializing TextDetection model...")
         TextDetection(model_name="PP-OCRv5_mobile_det")
         
-        logger.info(f"Initializing PaddleOCRVL pipeline in {paddlex_home}...")
+        logger.info(f"Initializing PaddleOCRVL pipeline...")
         PaddleOCRVL(pipeline_version="v1")
         
+        # Manually copy from default cache if not in paddlex_home
+        default_paddlex_home = Path.home() / ".paddlex"
+        if default_paddlex_home.exists() and not (paddlex_home / "official_models").exists():
+            logger.info(f"Copying models from {default_paddlex_home} to {paddlex_home}...")
+            paddlex_home.mkdir(parents=True, exist_ok=True)
+            # Copy the official_models directory
+            src = default_paddlex_home / "official_models"
+            dst = paddlex_home / "official_models"
+            if src.exists():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+
         logger.info(f"PaddleOCR models prepared in {paddlex_home}")
         logger.info("Hint: To mount these in Docker, ensure ./models is mounted to /models and PADDLEX_HOME=/models/paddlex is set.")
     except ImportError:
