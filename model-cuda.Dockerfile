@@ -11,7 +11,8 @@ RUN --mount=type=cache,target=/var/cache/apt \
     apt-get install -y --no-install-recommends python3 python3-pip python3-venv ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/pip python3 -m pip install uv
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /bin/
 
 COPY pyproject.toml uv.lock README.md /app/
 COPY src /app/src
@@ -36,4 +37,4 @@ COPY --from=builder /app /app
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONPATH="/app/src"
 
-CMD ["uv", "run", "python", "scripts/run_dense_service.py"]
+CMD ["python3", "scripts/run_dense_service.py"]

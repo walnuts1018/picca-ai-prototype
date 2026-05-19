@@ -5,7 +5,8 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /app
 
-RUN --mount=type=cache,target=/root/.cache/pip pip install uv
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /bin/
 
 COPY pyproject.toml uv.lock README.md /app/
 COPY src /app/src
@@ -25,4 +26,4 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 
 EXPOSE 8000
 
-CMD ["uv", "run", "python", "scripts/run_gateway.py"]
+CMD ["python", "scripts/run_gateway.py"]
