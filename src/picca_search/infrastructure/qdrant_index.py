@@ -114,29 +114,35 @@ class QdrantImageIndex:
         if self.client.collection_exists(self.collection_name):
             self._collection_ready = True
             return
-        self.client.create_collection(
-            collection_name=self.collection_name,
-            vectors_config={
-                DENSE_VECTOR_NAME: models.VectorParams(
-                    size=dense_vector_size,
-                    distance=models.Distance.COSINE,
-                )
-            },
-            quantization_config=models.ScalarQuantization(
-                scalar=models.ScalarQuantizationConfig(
-                    type=models.ScalarType.INT8,
-                    always_ram=True,
-                )
-            ),
-            sparse_vectors_config={
-                OCR_SPARSE_VECTOR_NAME: models.SparseVectorParams(
-                    index=models.SparseIndexParams(on_disk=False)
+        try:
+            self.client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config={
+                    DENSE_VECTOR_NAME: models.VectorParams(
+                        size=dense_vector_size,
+                        distance=models.Distance.COSINE,
+                    )
+                },
+                quantization_config=models.ScalarQuantization(
+                    scalar=models.ScalarQuantizationConfig(
+                        type=models.ScalarType.INT8,
+                        always_ram=True,
+                    )
                 ),
-                FLORENCE_SPARSE_VECTOR_NAME: models.SparseVectorParams(
-                    index=models.SparseIndexParams(on_disk=False)
-                )
-            },
-        )
+                sparse_vectors_config={
+                    OCR_SPARSE_VECTOR_NAME: models.SparseVectorParams(
+                        index=models.SparseIndexParams(on_disk=False)
+                    ),
+                    FLORENCE_SPARSE_VECTOR_NAME: models.SparseVectorParams(
+                        index=models.SparseIndexParams(on_disk=False)
+                    )
+                },
+            )
+        except Exception as e:
+            if "already exists" in str(e).lower():
+                self._collection_ready = True
+                return
+            raise
         self._collection_ready = True
 
     def upsert(self, documents: list[ImageDocument]) -> None:
@@ -156,6 +162,7 @@ class QdrantImageIndex:
         limit: int,
         weights: tuple[float, float, float] | None = None,
     ) -> list[SearchResult]:
+        self.ensure_collection(query_dense.dimension)
         resolved_weights = DEFAULT_RRF_WEIGHTS if weights is None else weights
         response = self.client.query_points(
             collection_name=self.collection_name,
@@ -180,6 +187,7 @@ class QdrantImageIndex:
         limit: int,
         weights: tuple[float, float, float] | None = None,
     ) -> SearchDiagnostics:
+        self.ensure_collection(query_dense.dimension)
         resolved_weights = DEFAULT_RRF_WEIGHTS if weights is None else weights
         dense_response = self.client.query_points(
             collection_name=self.collection_name,

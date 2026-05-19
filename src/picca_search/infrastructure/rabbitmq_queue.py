@@ -30,8 +30,9 @@ class QueueDelivery:
 
 
 class RabbitMqImageJobQueue:
-    def __init__(self, amqp_url: str, queue_name: str, max_retries: int = 5, retry_delay: float = 2.0) -> None:
+    def __init__(self, amqp_url: str, queue_name: str, max_retries: int = 5, retry_delay: float = 2.0, heartbeat: int = 60) -> None:
         self.parameters = pika.URLParameters(amqp_url)
+        self.parameters.heartbeat = heartbeat
         self.queue_name = queue_name
         
         last_exception = None

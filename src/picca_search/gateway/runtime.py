@@ -65,7 +65,7 @@ def _run_consumer_loop(settings: GatewaySettings, stop_event: threading.Event) -
             aws_secret_access_key=settings.s3_secret_access_key,
         )
         storage = SeaweedObjectStorage(s3_client=s3_client, bucket=settings.s3_bucket)
-        queue = RabbitMqImageJobQueue(settings.rabbitmq_url, settings.rabbitmq_queue)
+        queue = RabbitMqImageJobQueue(settings.rabbitmq_url, settings.rabbitmq_queue, heartbeat=settings.rabbitmq_heartbeat)
         ingestion = GatewayIngestionService(
             storage=storage,
             dense_client=DenseModelClient(settings.dense_service_url),
@@ -80,15 +80,26 @@ def _run_consumer_loop(settings: GatewaySettings, stop_event: threading.Event) -
                 if not deliveries:
                     time.sleep(0.2)
                     continue
+                
+                logger.info(f"Processing batch of {len(deliveries)} jobs")
                 outcome = ingestion.process_jobs(
                     [PendingImageJob(delivery_tag=item.delivery_tag, image_id=item.message.image_id) for item in deliveries]
                 )
-                for delivery_tag in outcome.acked_delivery_tags:
-                    queue.ack(delivery_tag)
-                for delivery_tag in outcome.requeue_delivery_tags:
-                    queue.nack(delivery_tag, requeue=True)
-                for delivery_tag in outcome.dead_letter_delivery_tags:
-                    queue.nack(delivery_tag, requeue=False)
+                
+                if outcome.acked_delivery_tags:
+                    logger.info(f"Acking {len(outcome.acked_delivery_tags)} jobs")
+                    for delivery_tag in outcome.acked_delivery_tags:
+                        queue.ack(delivery_tag)
+                
+                if outcome.requeue_delivery_tags:
+                    logger.warning(f"Requeueing {len(outcome.requeue_delivery_tags)} jobs")
+                    for delivery_tag in outcome.requeue_delivery_tags:
+                        queue.nack(delivery_tag, requeue=True)
+                
+                if outcome.dead_letter_delivery_tags:
+                    logger.error(f"Dead-lettering {len(outcome.dead_letter_delivery_tags)} jobs")
+                    for delivery_tag in outcome.dead_letter_delivery_tags:
+                        queue.nack(delivery_tag, requeue=False)
         finally:
             queue.close()
     except Exception:
