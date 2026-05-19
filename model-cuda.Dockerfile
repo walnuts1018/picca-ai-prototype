@@ -34,6 +34,7 @@ RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
     python3 \
     python3-pip \
     python3-venv \
+    ca-certificates \
     libgl1 \
     libglib2.0-0
 
