@@ -15,6 +15,7 @@ OCR_WEIGHT = 2.0
 FLORENCE_WEIGHT = 1.0
 RRF_K = 1
 RRF_WEIGHTS = (DENSE_WEIGHT, OCR_WEIGHT, FLORENCE_WEIGHT)
+DEFAULT_RRF_WEIGHTS = RRF_WEIGHTS
 
 
 @dataclass(frozen=True)
@@ -153,14 +154,16 @@ class QdrantImageIndex:
         query_ocr_sparse: SparseVector,
         query_florence_sparse: SparseVector,
         limit: int,
+        weights: tuple[float, float, float] | None = None,
     ) -> list[SearchResult]:
+        resolved_weights = DEFAULT_RRF_WEIGHTS if weights is None else weights
         response = self.client.query_points(
             collection_name=self.collection_name,
             prefetch=prefetches_from_query(query_dense, query_ocr_sparse, query_florence_sparse, limit),
             query=models.RrfQuery(
                 rrf=models.Rrf(
                     k=RRF_K,
-                    weights=list(RRF_WEIGHTS),
+                    weights=list(resolved_weights),
                 )
             ),
             limit=limit,
@@ -175,7 +178,9 @@ class QdrantImageIndex:
         query_ocr_sparse: SparseVector,
         query_florence_sparse: SparseVector,
         limit: int,
+        weights: tuple[float, float, float] | None = None,
     ) -> SearchDiagnostics:
+        resolved_weights = DEFAULT_RRF_WEIGHTS if weights is None else weights
         dense_response = self.client.query_points(
             collection_name=self.collection_name,
             query=list(query_dense.values),
@@ -214,7 +219,7 @@ class QdrantImageIndex:
         ]
 
         fused_scores: dict[str, SearchResult] = {}
-        for results, weight in zip((dense, ocr, florence), RRF_WEIGHTS, strict=True):
+        for results, weight in zip((dense, ocr, florence), resolved_weights, strict=True):
             for result in results:
                 existing = fused_scores.get(result.image_id.value)
                 contribution = weight / (RRF_K + result.rank)

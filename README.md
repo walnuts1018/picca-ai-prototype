@@ -1,50 +1,53 @@
 # picca-ai-prototype
 
-`docs/architecture.md` に基づく、自然言語で画像を検索するための Python Prototype です。
-Qdrant は Docker Compose で動かし、画像取り込みと検索は単純な Python スクリプトとして実行します。
+自然言語画像検索プロトタイプです。現行構成は script 実行型ではなく、`gateway + model services + RabbitMQ + SeaweedFS + Qdrant` の常駐サービス構成です。
 
-## Setup
+## Services
 
-```bash
-uv python pin 3.12
-uv sync --group vision
-docker compose up -d qdrant
-```
+- `gateway`: 検索 HTTP API と RabbitMQ consumer
+- `dense-service`: WAON SigLIP
+- `sparse-service`: light-SPLADE Japanese
+- `ocr-service`: PaddleOCR-VL
+- `caption-service`: Florence-2 + CAT-Translate
+- `rabbitmq`: image job queue
+- `seaweedfs-s3`: S3 互換オブジェクトストレージ
+- `qdrant`: ベクトル検索
 
-`paddleocr` / `paddlex` の依存がこのプロジェクトでは Python 3.13 で正常動作しないため、画像取り込みは Python 3.12 を前提にしています。
-
-## Ingest
-
-画像ディレクトリ内の `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`, `.gif` を Qdrant に登録します。
-Sparse Vector 用テキストは、PaddleOCR-VL による OCR と Florence-2 + CAT-Translate による日本語 Caption を統合して作ります。
-推論前には EXIF Orientation を正規化します。長辺が 2048px を超える画像は ingest 時に推論用の一時ファイルへリサイズされます。透過画像と `.png` / `.bmp` は一時ファイルでも PNG を維持し、それ以外の非透過画像は JPEG に再エンコードします。元の画像ファイルと保存される画像パスはそのまま維持されます。
+## Local Run
 
 ```bash
-uv run --group vision python scripts/ingest_images.py ./images --collection picca_images
+docker compose up --build
 ```
 
-各モデルは `--dense-device`, `--sparse-device`, `--caption-device`, `--ocr-device` で
-`cuda` / `mps` / `cpu` を個別指定できます。未指定時は各モデルの自動選択を使います。
-Qdrant への登録は `--batch-size` 件ごとにまとめて upsert します。既定値は `16` です。
+デフォルトの Compose は全モデルを `MODEL_DEVICE=cpu` で起動します。モデル単位で CUDA に切り替えたい場合は、対象サービスの image / Dockerfile を `Dockerfile.model.cuda` ベースに差し替え、`MODEL_DEVICE=cuda` を指定してください。
 
-## Search
+## Upload + Publish
+
+ディレクトリ内画像を SeaweedFS S3 に配置し、その object key を RabbitMQ に流します。
 
 ```bash
-uv run python scripts/search_images.py "赤い鳥居が写っている写真" --collection picca_images --limit 5
+uv run python scripts/publish_directory_to_queue.py ./images
 ```
 
-検索時も `--dense-device`, `--sparse-device` で個別指定できます。未指定時は自動選択です。
-通常検索は Qdrant の fusion query を使う高速経路を通ります。`--explain` と `--json` は
-dense / sparse の個別順位を出すため、診断用の追加クエリを実行します。
+## Search API
 
-## Architecture
+```bash
+uv run python scripts/search_api_client.py "赤い鳥居が写っている写真" --limit 5
+```
 
-- `src/picca_search/domain.py`: `ImageId`, `ImagePath`, `DenseVector`, `SparseVector`, `SearchQuery` などのドメイン型
-- `src/picca_search/application.py`: 取り込みと検索のワークフロー
-- `src/picca_search/infrastructure/qdrant_index.py`: Qdrant collection, upsert, Prefetch + RRF search
-- `src/picca_search/infrastructure/embedding_models.py`: WAON SigLIP と light-SPLADE の adapter
-- `src/picca_search/infrastructure/vision_language_models.py`: PaddleOCR-VL と Florence-2 + CAT-Translate の adapter
-- `scripts/ingest_images.py`: 画像取り込みの composition root
-- `scripts/search_images.py`: 検索の composition root
+`dense_weight`, `ocr_weight`, `florence_weight`, `limit` は optional に指定できます。
 
-PaddleOCR-VL は公式ドキュメントが推奨する `PaddleOCRVL(pipeline_version="v1")` のパイプラインを使います。Florence-2 は Hugging Face の model card にある `<MORE_DETAILED_CAPTION>` task で英語キャプションを生成し、CAT-Translate で日本語に翻訳します。
+## Runtime Notes
+
+- `image_id` は S3 object key をそのまま使います
+- `gateway` は image job を batch 収集し、SeaweedFS から画像を取得して取り込みます
+- dense / sparse は batch endpoint でまとめて推論します
+- OCR / caption は画像ごとに service を呼びます
+
+## Entry Points
+
+- `scripts/run_gateway.py`
+- `scripts/run_dense_service.py`
+- `scripts/run_sparse_service.py`
+- `scripts/run_ocr_service.py`
+- `scripts/run_caption_service.py`

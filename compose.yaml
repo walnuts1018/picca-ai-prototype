@@ -7,5 +7,136 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  seaweedfs-master:
+    image: chrislusf/seaweedfs:3.89
+    command: "master -ip=seaweedfs-master -mdir=/data"
+    ports:
+      - "9333:9333"
+    volumes:
+      - seaweedfs_master:/data
+
+  seaweedfs-volume:
+    image: chrislusf/seaweedfs:3.89
+    command: 'volume -mserver="seaweedfs-master:9333" -ip=seaweedfs-volume -dir=/data -max=5'
+    depends_on:
+      - seaweedfs-master
+    volumes:
+      - seaweedfs_volume:/data
+
+  seaweedfs-filer:
+    image: chrislusf/seaweedfs:3.89
+    command: 'filer -master="seaweedfs-master:9333"'
+    depends_on:
+      - seaweedfs-master
+      - seaweedfs-volume
+    ports:
+      - "8888:8888"
+
+  seaweedfs-s3:
+    image: chrislusf/seaweedfs:3.89
+    command: 's3 -filer="seaweedfs-filer:8888" -ip.bind=0.0.0.0 -port=8333 -config=/etc/seaweedfs/s3.json'
+    depends_on:
+      - seaweedfs-filer
+    ports:
+      - "8333:8333"
+    volumes:
+      - ./docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+
+  seaweedfs-init:
+    image: amazon/aws-cli:2.17.43
+    depends_on:
+      - seaweedfs-s3
+    environment:
+      AWS_ACCESS_KEY_ID: seaweedfs
+      AWS_SECRET_ACCESS_KEY: seaweedfs
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        until aws --endpoint-url http://seaweedfs-s3:8333 s3 mb s3://images 2>/dev/null || aws --endpoint-url http://seaweedfs-s3:8333 s3 ls s3://images;
+        do sleep 1; done
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    depends_on:
+      - qdrant
+      - rabbitmq
+      - seaweedfs-init
+      - dense-service
+      - sparse-service
+      - ocr-service
+      - caption-service
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: picca_images
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+      RABBITMQ_QUEUE: image_jobs
+      S3_ENDPOINT_URL: http://seaweedfs-s3:8333
+      S3_BUCKET: images
+      S3_ACCESS_KEY_ID: seaweedfs
+      S3_SECRET_ACCESS_KEY: seaweedfs
+      DENSE_SERVICE_URL: http://dense-service:8001
+      SPARSE_SERVICE_URL: http://sparse-service:8002
+      OCR_SERVICE_URL: http://ocr-service:8003
+      CAPTION_SERVICE_URL: http://caption-service:8004
+      INGEST_BATCH_SIZE: 8
+      INGEST_BATCH_WAIT_SECONDS: 2.0
+    ports:
+      - "8000:8000"
+
+  dense-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.model
+    command: ["uv", "run", "python", "scripts/run_dense_service.py"]
+    environment:
+      PORT: 8001
+      MODEL_DEVICE: cpu
+    ports:
+      - "8001:8001"
+
+  sparse-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.model
+    command: ["uv", "run", "python", "scripts/run_sparse_service.py"]
+    environment:
+      PORT: 8002
+      MODEL_DEVICE: cpu
+    ports:
+      - "8002:8002"
+
+  ocr-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.model
+    command: ["uv", "run", "python", "scripts/run_ocr_service.py"]
+    environment:
+      PORT: 8003
+      MODEL_DEVICE: cpu
+    ports:
+      - "8003:8003"
+
+  caption-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.model
+    command: ["uv", "run", "python", "scripts/run_caption_service.py"]
+    environment:
+      PORT: 8004
+      MODEL_DEVICE: cpu
+    ports:
+      - "8004:8004"
+
 volumes:
   qdrant_storage:
+  seaweedfs_master:
+  seaweedfs_volume:

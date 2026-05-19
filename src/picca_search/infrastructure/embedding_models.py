@@ -55,6 +55,17 @@ class WaonSiglipEncoder:
         batch_values = normalized.detach().cpu().tolist()
         return [DenseVector.create(row) for row in batch_values]
 
+    def encode_images_from_paths(self, image_paths: list[Path]) -> list[DenseVector]:
+        images: list[Image.Image] = []
+        try:
+            for image_path in image_paths:
+                with Image.open(image_path) as image:
+                    images.append(image.convert("RGB"))
+            return self.encode_images(images)
+        finally:
+            for image in images:
+                image.close()
+
 
 class SpladeJapaneseSparseEncoder:
     def __init__(

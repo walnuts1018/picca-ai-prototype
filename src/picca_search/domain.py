@@ -20,6 +20,13 @@ class ImageId:
         digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()
         return cls(str(uuid.uuid5(uuid.NAMESPACE_URL, digest)))
 
+    @classmethod
+    def from_object_key(cls, object_key: str) -> "ImageId":
+        normalized = object_key.strip().strip("/")
+        if normalized == "":
+            raise ValueError("Object key must not be blank")
+        return cls(normalized)
+
 
 @dataclass(frozen=True)
 class ImagePath:
@@ -35,6 +42,18 @@ class ImagePath:
         if value.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
             raise ValueError(f"Unsupported image extension: {value.suffix}")
         return cls(value)
+
+
+@dataclass(frozen=True)
+class ImageSourcePath:
+    value: str
+
+    @classmethod
+    def create(cls, value: str) -> "ImageSourcePath":
+        normalized = value.strip()
+        if normalized == "":
+            raise ValueError("Image source path must not be blank")
+        return cls(normalized)
 
 
 @dataclass(frozen=True)
@@ -118,6 +137,7 @@ class ExtractedImageText:
 class ImageDocument:
     image_id: ImageId
     image_path: ImagePath
+    source_path: ImageSourcePath | None
     dense_vector: DenseVector
     florence_sparse_vector: SparseVector
     text: str
@@ -136,10 +156,12 @@ class ImageDocument:
         ocr_sparse_vector: SparseVector | None = None,
         ocr_text: str = "",
         caption: str = "",
+        source_path: ImageSourcePath | None = None,
     ) -> "ImageDocument":
         return cls(
             image_id=image_id,
             image_path=image_path,
+            source_path=source_path,
             dense_vector=dense_vector,
             florence_sparse_vector=florence_sparse_vector,
             text=text.strip(),
@@ -151,7 +173,7 @@ class ImageDocument:
     @property
     def payload(self) -> dict[str, str]:
         payload = {
-            "path": str(self.image_path.value),
+            "path": self.source_path.value if self.source_path is not None else str(self.image_path.value),
             "text": self.text,
         }
         if self.ocr_text != "":
