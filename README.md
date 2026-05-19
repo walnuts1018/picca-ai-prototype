@@ -17,10 +17,25 @@
 ## Local Run
 
 ```bash
+# モデルのダウンロードと ONNX エクスポートを事前に実行
+uv run scripts/prepare_models.py --output-dir models/
+
+# 起動
 docker compose up --build
 ```
 
-デフォルトの Compose は全モデルを `MODEL_DEVICE=cpu` で起動します。モデル単位で CUDA に切り替えたい場合は、対象サービスの image / Dockerfile を `model-cuda.Dockerfile` ベースに差し替え、`MODEL_DEVICE=cuda` を指定してください。
+デフォルトの Compose は、ローカルの `./models` ディレクトリをコンテナにマウントし、ONNX モデル（存在する場合）またはキャッシュされた PyTorch モデルを使用します。これにより、起動時のダウンロードを回避し、推論を高速化します。
+
+全モデルを `MODEL_DEVICE=cpu` で起動します。モデル単位で CUDA に切り替えたい場合は、対象サービスの image / Dockerfile を `model-cuda.Dockerfile` ベースに差し替え、`MODEL_DEVICE=cuda` を指定してください。
+
+## ONNX Integration
+
+標準的な Hugging Face モデル（SigLIP, SPLADE, CAT-Translate）は ONNX Runtime で動作します。
+`scripts/prepare_models.py` は以下の処理を行い、全て `./models` ディレクトリに集約します：
+- **ONNX Export:** SigLIP, SPLADE, CAT-Translate を ONNX 形式で保存。
+- **Local Caching:** Florence-2 を PyTorch 形式、PaddleOCR を PaddleX 形式 (`./models/paddlex`) で保存。
+
+インフラ層は、指定ディレクトリに `.onnx` ファイルがあれば自動的に ONNX Runtime を使用し、なければ PyTorch にフォールバックします。PaddleOCR は `PADDLEX_HOME` 環境変数を通じて `./models/paddlex` を参照します。
 
 ## Upload + Publish
 

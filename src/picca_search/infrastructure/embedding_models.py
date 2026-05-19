@@ -16,12 +16,23 @@ class WaonSiglipEncoder:
     def __init__(self, model_name: str = WAON_SIGLIP_MODEL, device: str | None = None) -> None:
         import torch
 
-        AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
-
         self.torch = torch
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
-        self.processor = AutoProcessor.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name).to(self.device)
+
+        model_path = Path(model_name)
+        if model_path.is_dir() and (model_path / "model.onnx").exists():
+            from optimum.onnxruntime import ORTModelForFeatureExtraction
+            from transformers import AutoProcessor
+
+            self.processor = AutoProcessor.from_pretrained(model_name)
+            self.model = ORTModelForFeatureExtraction.from_pretrained(
+                model_name, provider=_get_ort_provider(self.device)
+            )
+        else:
+            AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
+            self.processor = AutoProcessor.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name).to(self.device)
+
         self.text_max_length = int(self.model.config.text_config.max_position_embeddings)
         self.model.eval()
 
@@ -30,7 +41,11 @@ class WaonSiglipEncoder:
             rgb_image = image.convert("RGB")
             inputs = self.processor(images=rgb_image, return_tensors="pt").to(self.device)
         with self.torch.no_grad():
-            features = self.model.get_image_features(**inputs)
+            if hasattr(self.model, "get_image_features"):
+                features = self.model.get_image_features(**inputs)
+            else:
+                outputs = self.model(**inputs)
+                features = outputs.image_embeds
         return DenseVector.create(_normalized_values(self.torch, features))
 
     def encode_text(self, text: str) -> DenseVector:
@@ -44,13 +59,21 @@ class WaonSiglipEncoder:
             return_tensors="pt",
         ).to(self.device)
         with self.torch.no_grad():
-            features = self.model.get_text_features(**inputs)
+            if hasattr(self.model, "get_text_features"):
+                features = self.model.get_text_features(**inputs)
+            else:
+                outputs = self.model(**inputs)
+                features = outputs.text_embeds
         return DenseVector.create(_normalized_values(self.torch, features))
 
     def encode_images(self, images: list[Image.Image]) -> list[DenseVector]:
         inputs = self.processor(images=images, return_tensors="pt").to(self.device)
         with self.torch.no_grad():
-            features = self.model.get_image_features(**inputs)
+            if hasattr(self.model, "get_image_features"):
+                features = self.model.get_image_features(**inputs)
+            else:
+                outputs = self.model(**inputs)
+                features = outputs.image_embeds
         normalized = features / features.norm(dim=-1, keepdim=True).clamp(min=1e-12)
         batch_values = normalized.detach().cpu().tolist()
         return [DenseVector.create(row) for row in batch_values]
@@ -76,16 +99,27 @@ class SpladeJapaneseSparseEncoder:
     ) -> None:
         import torch
 
-        AutoModelForMaskedLM, AutoTokenizer = import_transformers_symbols(
-            "AutoModelForMaskedLM",
-            "AutoTokenizer",
-        )
-
         self.torch = torch
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
         self.top_k = top_k
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForMaskedLM.from_pretrained(model_name).to(self.device)
+
+        model_path = Path(model_name)
+        if model_path.is_dir() and (model_path / "model.onnx").exists():
+            from optimum.onnxruntime import ORTModelForMaskedLM
+            from transformers import AutoTokenizer
+
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = ORTModelForMaskedLM.from_pretrained(
+                model_name, provider=_get_ort_provider(self.device)
+            )
+        else:
+            AutoModelForMaskedLM, AutoTokenizer = import_transformers_symbols(
+                "AutoModelForMaskedLM",
+                "AutoTokenizer",
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModelForMaskedLM.from_pretrained(model_name).to(self.device)
+
         self.max_length = _resolve_sparse_max_length(
             tokenizer_max_length=getattr(self.tokenizer, "model_max_length", None),
             model_max_length=getattr(self.model.config, "max_position_embeddings", None),
@@ -142,6 +176,15 @@ class SpladeJapaneseSparseEncoder:
             else:
                 results.append(SparseVector.create(indices, values))
         return results
+
+
+def _get_ort_provider(device: str) -> str:
+    if device == "cuda":
+        return "CUDAExecutionProvider"
+    if device == "mps":
+        # MPS is not well-supported in ORT yet, fallback to CPU or try CoreML
+        return "CPUExecutionProvider"
+    return "CPUExecutionProvider"
 
 
 def _normalized_values(torch, tensor) -> list[float]:

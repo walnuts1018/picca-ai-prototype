@@ -11,7 +11,8 @@ from picca_search.services.dense_api import create_dense_app
 def main() -> None:
     device = os.getenv("MODEL_DEVICE")
     port = int(os.getenv("PORT", "8001"))
-    encoder = WaonSiglipEncoder(device=device)
+    model_name = os.getenv("DENSE_MODEL_NAME", "llm-jp/waon-siglip2-base-patch16-256")
+    encoder = WaonSiglipEncoder(model_name=model_name, device=device)
     uvicorn.run(create_dense_app(encoder), host="0.0.0.0", port=port)
 
 

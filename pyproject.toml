@@ -14,6 +14,7 @@ dependencies = [
     "pydantic>=2.8.0",
     "python-multipart>=0.0.9",
     "qdrant-client>=1.14.0",
+    "optimum[onnxruntime]",
     "timm>=1.0.27",
     "torch>=2.3.0",
     "transformers>=4.45.0,<5",

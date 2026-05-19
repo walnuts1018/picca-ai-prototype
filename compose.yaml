@@ -66,6 +66,9 @@ services:
     environment:
       PORT: 8001
       MODEL_DEVICE: cpu
+      DENSE_MODEL_NAME: /models/waon-siglip2-base-patch16-256
+    volumes:
+      - ./models:/models
     ports:
       - "8001:8001"
 
@@ -78,6 +81,9 @@ services:
     environment:
       PORT: 8002
       MODEL_DEVICE: cpu
+      SPARSE_MODEL_NAME: /models/light-splade-japanese-28M
+    volumes:
+      - ./models:/models
     ports:
       - "8002:8002"
 
@@ -90,6 +96,9 @@ services:
     environment:
       PORT: 8003
       MODEL_DEVICE: cpu
+      PADDLEX_HOME: /models/paddlex
+    volumes:
+      - ./models:/models
     ports:
       - "8003:8003"
 
@@ -102,6 +111,10 @@ services:
     environment:
       PORT: 8004
       MODEL_DEVICE: cpu
+      FLORENCE2_MODEL_NAME: /models/Florence-2-base-ft
+      TRANSLATE_MODEL_NAME: /models/CAT-Translate-0.8b
+    volumes:
+      - ./models:/models
     ports:
       - "8004:8004"
 

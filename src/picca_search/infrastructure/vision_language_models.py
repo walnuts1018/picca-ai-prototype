@@ -166,11 +166,6 @@ class JapaneseTranslator:
     ) -> None:
         import torch
 
-        AutoModelForCausalLM, AutoTokenizer = import_transformers_symbols(
-            "AutoModelForCausalLM",
-            "AutoTokenizer",
-        )
-
         self.torch = torch
         self.device = device or (
             "cuda"
@@ -184,11 +179,26 @@ class JapaneseTranslator:
         self.tgt_lang = tgt_lang
         self.max_new_tokens = max_new_tokens
         self.prompt_template = CAT_TRANSLATE_PROMPT
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=self.torch_dtype,
-        ).to(self.device)
+
+        model_path = Path(model_name)
+        if model_path.is_dir() and (model_path / "decoder_model.onnx").exists():
+            from optimum.onnxruntime import ORTModelForCausalLM
+            from transformers import AutoTokenizer
+
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = ORTModelForCausalLM.from_pretrained(
+                model_name, provider=_get_ort_provider(self.device)
+            )
+        else:
+            AutoModelForCausalLM, AutoTokenizer = import_transformers_symbols(
+                "AutoModelForCausalLM",
+                "AutoTokenizer",
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=self.torch_dtype,
+            ).to(self.device)
         self.model.eval()
 
     def translate(self, text: str) -> str:
@@ -219,10 +229,13 @@ class Florence2WithJapaneseTranslation:
         self,
         captioner: Florence2Captioner | None = None,
         translator: JapaneseTranslator | None = None,
+        model_name: str = FLORENCE2_MODEL,
+        translator_model_name: str = CAT_TRANSLATE_MODEL,
         **kwargs: Any,
     ) -> None:
-        self.captioner = captioner or Florence2Captioner(**kwargs)
+        self.captioner = captioner or Florence2Captioner(model_name=model_name, **kwargs)
         self.translator = translator or JapaneseTranslator(
+            model_name=translator_model_name,
             device=kwargs.get("device")
         )
 
@@ -231,6 +244,15 @@ class Florence2WithJapaneseTranslation:
         if not english_caption:
             return ""
         return self.translator.translate(english_caption)
+
+
+def _get_ort_provider(device: str) -> str:
+    if device == "cuda":
+        return "CUDAExecutionProvider"
+    if device == "mps":
+        # MPS is not well-supported in ORT yet, fallback to CPU or try CoreML
+        return "CPUExecutionProvider"
+    return "CPUExecutionProvider"
 
 
 def _text_from_paddleocr_result(result: Any) -> str:
