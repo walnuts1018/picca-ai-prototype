@@ -10,7 +10,7 @@ from picca_search.domain import DenseVector, ImageDocument, ImageId, SearchResul
 DENSE_VECTOR_NAME = "dense"
 OCR_SPARSE_VECTOR_NAME = "ocr_sparse"
 FLORENCE_SPARSE_VECTOR_NAME = "florence_sparse"
-DENSE_WEIGHT = 3.0
+DENSE_WEIGHT = 4.0
 OCR_WEIGHT = 2.0
 FLORENCE_WEIGHT = 1.0
 RRF_K = 1
