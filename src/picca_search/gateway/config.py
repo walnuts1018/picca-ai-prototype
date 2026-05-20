@@ -13,6 +13,7 @@ class GatewaySettings:
     qdrant_collection: str = "picca_images"
     rabbitmq_url: str = "amqp://guest:guest@rabbitmq:5672/%2F"
     rabbitmq_queue: str = "image_jobs"
+    rabbitmq_result_queue: str = "image_job_results"
     rabbitmq_heartbeat: int = 300
     s3_endpoint_url: str = "http://seaweedfs-s3:8333"
     s3_bucket: str = "images"
@@ -42,6 +43,7 @@ class GatewaySettings:
             qdrant_collection=os.getenv("QDRANT_COLLECTION", "picca_images"),
             rabbitmq_url=os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/%2F"),
             rabbitmq_queue=os.getenv("RABBITMQ_QUEUE", "image_jobs"),
+            rabbitmq_result_queue=os.getenv("RABBITMQ_RESULT_QUEUE", "image_job_results"),
             rabbitmq_heartbeat=int(os.getenv("GATEWAY_RABBITMQ_HEARTBEAT", "300")),
             s3_endpoint_url=os.getenv("S3_ENDPOINT_URL", "http://seaweedfs-s3:8333"),
             s3_bucket=os.getenv("S3_BUCKET", "images"),

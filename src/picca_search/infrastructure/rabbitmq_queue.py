@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from datetime import datetime
 
 import pika
+
+
+_IMAGE_JOB_RESULT_STATUSES = frozenset({"processing", "indexed", "failed"})
 
 
 @dataclass(frozen=True)
@@ -21,6 +25,47 @@ class ImageJobMessage:
 
     def to_body(self) -> bytes:
         return json.dumps({"image_id": self.image_id}, ensure_ascii=False).encode("utf-8")
+
+
+@dataclass(frozen=True)
+class ImageJobResultMessage:
+    image_id: str
+    status: str
+    occurred_at: str
+    error_message: str | None = None
+
+    @classmethod
+    def from_body(cls, body: bytes) -> "ImageJobResultMessage":
+        payload = json.loads(body.decode("utf-8"))
+        image_id = _require_non_blank_string(payload, "image_id")
+        status = _require_non_blank_string(payload, "status")
+        occurred_at = _require_non_blank_string(payload, "occurred_at")
+        error_message = payload.get("error_message")
+        if status not in _IMAGE_JOB_RESULT_STATUSES:
+            raise ValueError(f"status must be one of {sorted(_IMAGE_JOB_RESULT_STATUSES)}")
+        _parse_timestamp(occurred_at)
+        normalized_error_message = None if error_message in (None, "") else str(error_message).strip()
+        if status == "failed" and not normalized_error_message:
+            raise ValueError("error_message is required when status is failed")
+        if status != "failed" and normalized_error_message is not None:
+            raise ValueError("error_message must be omitted unless status is failed")
+        return cls(
+            image_id=image_id,
+            status=status,
+            occurred_at=occurred_at,
+            error_message=normalized_error_message,
+        )
+
+    def to_body(self) -> bytes:
+        return json.dumps(
+            {
+                "image_id": self.image_id,
+                "status": self.status,
+                "occurred_at": self.occurred_at,
+                "error_message": self.error_message,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
 
 
 @dataclass(frozen=True)
@@ -85,3 +130,20 @@ class RabbitMqImageJobQueue:
     def close(self) -> None:
         if self.connection.is_open:
             self.connection.close()
+
+
+def _require_non_blank_string(payload: dict[str, object], field_name: str) -> str:
+    value = payload.get(field_name)
+    if value is None:
+        raise ValueError(f"{field_name} is required")
+    normalized = str(value).strip()
+    if normalized == "":
+        raise ValueError(f"{field_name} must not be blank")
+    return normalized
+
+
+def _parse_timestamp(value: str) -> None:
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("occurred_at must be a valid ISO 8601 timestamp") from exc
