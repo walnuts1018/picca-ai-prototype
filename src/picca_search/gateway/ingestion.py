@@ -18,16 +18,33 @@ from picca_search.infrastructure.qdrant_index import QdrantImageIndex
 
 
 @dataclass(frozen=True)
+class ImageResultEvent:
+    delivery_tag: int
+    image_id: str
+    status: str
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
 class IngestionOutcome:
     acked_delivery_tags: list[int]
     requeue_delivery_tags: list[int]
     dead_letter_delivery_tags: list[int]
+    image_result_events: list[ImageResultEvent]
 
 
 @dataclass(frozen=True)
 class PendingImageJob:
     delivery_tag: int
     image_id: str
+
+
+@dataclass(frozen=True)
+class _PreparedImageJob:
+    job: PendingImageJob
+    local_path: Path
+    dense_path: Path
+    extracted: ExtractedImageText
 
 
 class GatewayIngestionService:
@@ -52,28 +69,23 @@ class GatewayIngestionService:
         acked: list[int] = []
         requeue: list[int] = []
         dead_letter: list[int] = []
+        image_result_events: list[ImageResultEvent] = []
         documents: list[ImageDocument] = []
-        dense_paths: list[Path] = []
-        document_paths: list[Path] = []
+        prepared_jobs: list[_PreparedImageJob] = []
         florence_texts: list[str] = []
         ocr_texts_for_sparse: list[str] = []
         temp_paths_to_cleanup: list[Path] = []
-        successful_jobs: list[PendingImageJob] = []
-        extracted_texts: list[ExtractedImageText] = []
 
-        try:
-            for job in jobs:
+        for job in jobs:
+            try:
                 local_path = self.storage.download_to_tempfile(job.image_id)
                 temp_paths_to_cleanup.append(local_path)
                 with prepare_inference_image(local_path) as inference_path:
                     ocr_text = self.ocr_client.extract_text(inference_path)
                     caption = self.caption_client.caption(inference_path)
                     extracted = ExtractedImageText.create(ocr_text=ocr_text, caption=caption)
-                    extracted_texts.append(extracted)
-                    successful_jobs.append(job)
-                    document_paths.append(local_path)
                     if inference_path == local_path:
-                        dense_paths.append(local_path)
+                        dense_path = local_path
                     else:
                         with tempfile.NamedTemporaryFile(
                             suffix=inference_path.suffix,
@@ -82,48 +94,69 @@ class GatewayIngestionService:
                             retained_path = Path(temporary_file.name)
                         shutil.copy2(inference_path, retained_path)
                         temp_paths_to_cleanup.append(retained_path)
-                        dense_paths.append(retained_path)
+                        dense_path = retained_path
+                    prepared_jobs.append(
+                        _PreparedImageJob(
+                            job=job,
+                            local_path=local_path,
+                            dense_path=dense_path,
+                            extracted=extracted,
+                        )
+                    )
                     florence_texts.append(extracted.caption or extracted.combined)
                     if extracted.ocr_text != "":
                         ocr_texts_for_sparse.append(extracted.ocr_text)
-            if not successful_jobs:
-                return IngestionOutcome(acked, requeue, dead_letter)
+            except (OSError, ValueError) as exc:
+                dead_letter.append(job.delivery_tag)
+                image_result_events.append(
+                    ImageResultEvent(
+                        delivery_tag=job.delivery_tag,
+                        image_id=job.image_id,
+                        status="failed",
+                        error_message=str(exc),
+                    )
+                )
+            except Exception:
+                requeue.append(job.delivery_tag)
 
-            dense_vectors = self.dense_client.encode_images(dense_paths)
+        try:
+            if not prepared_jobs:
+                return IngestionOutcome(acked, requeue, dead_letter, image_result_events)
+
+            dense_vectors = self.dense_client.encode_images([item.dense_path for item in prepared_jobs])
             florence_sparse_vectors = self.sparse_client.encode_texts(florence_texts)
             ocr_sparse_vectors = self.sparse_client.encode_texts(ocr_texts_for_sparse)
             next_ocr_sparse = iter(ocr_sparse_vectors)
-            for job, local_path, extracted, dense_vector, florence_sparse in zip(
-                successful_jobs,
-                document_paths,
-                extracted_texts,
+            for prepared, dense_vector, florence_sparse in zip(
+                prepared_jobs,
                 dense_vectors,
                 florence_sparse_vectors,
                 strict=True,
             ):
                 documents.append(
                     ImageDocument.create(
-                        image_id=ImageId.from_object_key(job.image_id),
-                        image_path=ImagePath.create(local_path),
-                        source_path=ImageSourcePath.create(self.storage.uri_for(job.image_id)),
+                        image_id=ImageId.from_object_key(prepared.job.image_id),
+                        image_path=ImagePath.create(prepared.local_path),
+                        source_path=ImageSourcePath.create(self.storage.uri_for(prepared.job.image_id)),
                         dense_vector=dense_vector,
                         florence_sparse_vector=florence_sparse,
-                        text=extracted.combined,
-                        ocr_sparse_vector=next(next_ocr_sparse) if extracted.ocr_text != "" else None,
-                        ocr_text=extracted.ocr_text,
-                        caption=extracted.caption,
+                        text=prepared.extracted.combined,
+                        ocr_sparse_vector=next(next_ocr_sparse) if prepared.extracted.ocr_text != "" else None,
+                        ocr_text=prepared.extracted.ocr_text,
+                        caption=prepared.extracted.caption,
                     )
                 )
 
             self.index.upsert(documents)
-            acked.extend(job.delivery_tag for job in successful_jobs)
-            return IngestionOutcome(acked, requeue, dead_letter)
-        except (OSError, ValueError):
-            dead_letter.extend(job.delivery_tag for job in jobs)
-            return IngestionOutcome(acked, requeue, dead_letter)
+            acked.extend(item.job.delivery_tag for item in prepared_jobs)
+            image_result_events.extend(
+                ImageResultEvent(delivery_tag=item.job.delivery_tag, image_id=item.job.image_id, status="indexed")
+                for item in prepared_jobs
+            )
+            return IngestionOutcome(acked, requeue, dead_letter, image_result_events)
         except Exception:
-            requeue.extend(job.delivery_tag for job in jobs)
-            return IngestionOutcome(acked, requeue, dead_letter)
+            requeue.extend(item.job.delivery_tag for item in prepared_jobs)
+            return IngestionOutcome(acked, requeue, dead_letter, image_result_events)
         finally:
             for path in temp_paths_to_cleanup:
                 path.unlink(missing_ok=True)

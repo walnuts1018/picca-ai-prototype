@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime, timezone
 
 import boto3
 from qdrant_client import QdrantClient
@@ -19,7 +20,7 @@ from picca_search.infrastructure.model_client import (
 )
 from picca_search.infrastructure.object_storage import SeaweedObjectStorage
 from picca_search.infrastructure.qdrant_index import QdrantImageIndex
-from picca_search.infrastructure.rabbitmq_queue import RabbitMqImageJobQueue
+from picca_search.infrastructure.rabbitmq_queue import ImageJobResultMessage, RabbitMqImageJobQueue
 
 logger = logging.getLogger(__name__)
 
@@ -75,25 +76,71 @@ def _run_consumer_loop(settings: GatewaySettings, stop_event: threading.Event) -
                 if not deliveries:
                     time.sleep(0.2)
                     continue
-                
+
                 logger.info(f"Processing batch of {len(deliveries)} jobs")
+                for item in deliveries:
+                    queue.publish_result(
+                        settings.rabbitmq_result_queue,
+                        ImageJobResultMessage(
+                            image_id=item.message.image_id,
+                            status="processing",
+                            occurred_at=_utc_now_isoformat(),
+                        ),
+                    )
                 outcome = ingestion.process_jobs(
                     [PendingImageJob(delivery_tag=item.delivery_tag, image_id=item.message.image_id) for item in deliveries]
                 )
-                
+                image_ids_by_tag = {item.delivery_tag: item.message.image_id for item in deliveries}
+                acked_tags = set(outcome.acked_delivery_tags)
+                requeue_tags = set(outcome.requeue_delivery_tags)
+                dead_letter_tags = set(outcome.dead_letter_delivery_tags)
+                handled_tags: set[int] = set()
+
                 if outcome.acked_delivery_tags:
                     logger.info(f"Acking {len(outcome.acked_delivery_tags)} jobs")
-                    for delivery_tag in outcome.acked_delivery_tags:
-                        queue.ack(delivery_tag)
-                
                 if outcome.requeue_delivery_tags:
                     logger.warning(f"Requeueing {len(outcome.requeue_delivery_tags)} jobs")
-                    for delivery_tag in outcome.requeue_delivery_tags:
-                        queue.nack(delivery_tag, requeue=True)
-                
                 if outcome.dead_letter_delivery_tags:
                     logger.error(f"Dead-lettering {len(outcome.dead_letter_delivery_tags)} jobs")
-                    for delivery_tag in outcome.dead_letter_delivery_tags:
+
+                for event in outcome.image_result_events:
+                    queue.publish_result(
+                        settings.rabbitmq_result_queue,
+                        ImageJobResultMessage(
+                            image_id=event.image_id,
+                            status=event.status,
+                            occurred_at=_utc_now_isoformat(),
+                            error_message=event.error_message,
+                        ),
+                    )
+                    _apply_delivery_disposition(
+                        queue=queue,
+                        delivery_tag=event.delivery_tag,
+                        acked_tags=acked_tags,
+                        requeue_tags=requeue_tags,
+                        dead_letter_tags=dead_letter_tags,
+                    )
+                    handled_tags.add(event.delivery_tag)
+
+                for delivery_tag in outcome.acked_delivery_tags:
+                    if delivery_tag not in handled_tags:
+                        queue.ack(delivery_tag)
+
+                for delivery_tag in outcome.requeue_delivery_tags:
+                    if delivery_tag not in handled_tags:
+                        queue.nack(delivery_tag, requeue=True)
+
+                for delivery_tag in outcome.dead_letter_delivery_tags:
+                    if delivery_tag not in handled_tags:
+                        queue.publish_result(
+                            settings.rabbitmq_result_queue,
+                            ImageJobResultMessage(
+                                image_id=image_ids_by_tag[delivery_tag],
+                                status="failed",
+                                occurred_at=_utc_now_isoformat(),
+                                error_message="dead-lettered without explicit ingestion failure event",
+                            ),
+                        )
                         queue.nack(delivery_tag, requeue=False)
         finally:
             queue.close()
@@ -113,3 +160,27 @@ def _create_s3_client(settings: GatewaySettings):
         client_kwargs["aws_access_key_id"] = settings.s3_access_key_id
         client_kwargs["aws_secret_access_key"] = settings.s3_secret_access_key
     return session.client("s3", **client_kwargs)
+
+
+def _utc_now_isoformat() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _apply_delivery_disposition(
+    *,
+    queue: RabbitMqImageJobQueue,
+    delivery_tag: int,
+    acked_tags: set[int],
+    requeue_tags: set[int],
+    dead_letter_tags: set[int],
+) -> None:
+    if delivery_tag in acked_tags:
+        queue.ack(delivery_tag)
+        return
+    if delivery_tag in requeue_tags:
+        queue.nack(delivery_tag, requeue=True)
+        return
+    if delivery_tag in dead_letter_tags:
+        queue.nack(delivery_tag, requeue=False)
+        return
+    raise ValueError(f"delivery tag {delivery_tag} has no disposition")

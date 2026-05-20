@@ -103,6 +103,15 @@ class RabbitMqImageJobQueue:
             properties=pika.BasicProperties(delivery_mode=2),
         )
 
+    def publish_result(self, queue_name: str, message: ImageJobResultMessage) -> None:
+        self.channel.queue_declare(queue=queue_name, durable=True)
+        self.channel.basic_publish(
+            exchange="",
+            routing_key=queue_name,
+            body=message.to_body(),
+            properties=pika.BasicProperties(delivery_mode=2),
+        )
+
     def get_batch(self, max_count: int, wait_seconds: float) -> list[QueueDelivery]:
         deadline = time.monotonic() + wait_seconds
         deliveries: list[QueueDelivery] = []
