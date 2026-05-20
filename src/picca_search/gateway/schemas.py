@@ -27,6 +27,16 @@ class SearchResultPayload(BaseModel):
     text: str
     ocr_text: str | None = None
     caption: str | None = None
+    score_breakdown: SearchScoreBreakdown | None = None
+
+
+class SearchScoreBreakdown(BaseModel):
+    dense_score: float
+    ocr_score: float
+    florence_score: float
+    dense_rank: int | None = None
+    ocr_rank: int | None = None
+    florence_rank: int | None = None
 
 
 class SearchResponse(BaseModel):
