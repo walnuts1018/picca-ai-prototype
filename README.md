@@ -84,6 +84,7 @@ uv run python scripts/search_api_client.py "赤い鳥居が写っている写真
 - `gateway` は image job を batch 収集し、SeaweedFS から画像を取得して取り込みます
 - dense / sparse は batch endpoint でまとめて推論します
 - OCR / caption は画像ごとに service を呼びます
+- `gateway` の S3 client は従来の `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` に加えて、`AWS_WEB_IDENTITY_TOKEN_FILE` / `AWS_ROLE_ARN` / `AWS_REGION` / `AWS_ENDPOINT_URL_S3` / `AWS_ENDPOINT_URL_STS` による STS(Web Identity) credential chain に対応します
 
 ## Entry Points
 

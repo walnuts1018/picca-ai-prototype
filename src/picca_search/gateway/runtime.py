@@ -58,12 +58,7 @@ def create_gateway_app(settings: GatewaySettings):
 
 def _run_consumer_loop(settings: GatewaySettings, stop_event: threading.Event) -> None:
     try:
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=settings.s3_endpoint_url,
-            aws_access_key_id=settings.s3_access_key_id,
-            aws_secret_access_key=settings.s3_secret_access_key,
-        )
+        s3_client = _create_s3_client(settings)
         storage = SeaweedObjectStorage(s3_client=s3_client, bucket=settings.s3_bucket)
         queue = RabbitMqImageJobQueue(settings.rabbitmq_url, settings.rabbitmq_queue, heartbeat=settings.rabbitmq_heartbeat)
         ingestion = GatewayIngestionService(
@@ -105,3 +100,16 @@ def _run_consumer_loop(settings: GatewaySettings, stop_event: threading.Event) -
     except Exception:
         logger.exception("Unrecoverable error in consumer thread. Exiting process.")
         os._exit(1)
+
+
+def _create_s3_client(settings: GatewaySettings):
+    session = boto3.session.Session(region_name=settings.aws_region)
+    client_kwargs: dict[str, str] = {
+        "endpoint_url": settings.resolved_s3_endpoint_url,
+    }
+    if settings.aws_region is not None:
+        client_kwargs["region_name"] = settings.aws_region
+    if settings.s3_access_key_id is not None and settings.s3_secret_access_key is not None:
+        client_kwargs["aws_access_key_id"] = settings.s3_access_key_id
+        client_kwargs["aws_secret_access_key"] = settings.s3_secret_access_key
+    return session.client("s3", **client_kwargs)
