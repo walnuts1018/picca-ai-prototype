@@ -85,7 +85,10 @@ def ort_provider_for_device(device: str, *, require_accelerator: bool = False) -
 
 
 def transformers_pretrained_kwargs(*, prefer_slow: bool) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {"fix_mistral_regex": True}
+    # Metaspace などの一部の pre-tokenizer は item assignment に非対応であり、
+    # fix_mistral_regex=True に設定すると TypeError が発生するため False に設定する。
+    kwargs: dict[str, Any] = {"fix_mistral_regex": False}
     if prefer_slow:
         kwargs["use_fast"] = False
     return kwargs
+
