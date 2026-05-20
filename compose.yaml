@@ -128,6 +128,7 @@ services:
       PORT: 8003
       MODEL_DEVICE: cpu
       PADDLEX_HOME: /models/paddlex
+      FLAGS_enable_pir_api: "0"
     volumes:
       - ./models:/models
     ports:
