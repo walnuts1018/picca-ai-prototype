@@ -83,21 +83,23 @@ def main() -> None:
         description="Prepare local model files so runtime containers do not download models."
     )
     parser.add_argument("--output-dir", type=Path, default=Path("models"), help="Directory to save models")
-    parser.add_argument("--skip-onnx", action="store_true", help="Skip ONNX export")
-    parser.add_argument("--skip-download", action="store_true", help="Skip PyTorch weights download")
+    parser.add_argument("--skip-onnx", action="store_true", help="Skip ONNX export (SPLADE等のONNXエクスポートをスキップ)")
+    parser.add_argument("--skip-download", action="store_true", help="Skip model download")
     parser.add_argument("--skip-paddle", action="store_true", help="Skip PaddleOCR preparation")
 
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # waon-siglip2 は PyTorch weights をそのまま利用するため通常ダウンロード
+    if not args.skip_download:
+        download_hf_model(SIGLIP_MODEL, args.output_dir)
+        download_hf_model(FLORENCE2_MODEL, args.output_dir)
+
+    # SPLADE は ONNX で推論するためエクスポートが必要
     if not args.skip_onnx:
-        export_hf_to_onnx(SIGLIP_MODEL, args.output_dir, task="feature-extraction")
         export_hf_to_onnx(SPLADE_MODEL, args.output_dir, task="feature-extraction")
         export_hf_to_onnx(CAT_TRANSLATE_MODEL, args.output_dir, task="text-generation-with-past")
-
-    if not args.skip_download:
-        download_hf_model(FLORENCE2_MODEL, args.output_dir)
 
     if not args.skip_paddle:
         prepare_paddleocr(args.output_dir)

@@ -23,61 +23,33 @@ class WaonSiglipEncoder:
         self.torch = torch
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
 
+        AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
         model_path = Path(model_name)
-        if model_path.is_dir() and (model_path / "model.onnx").exists():
-            self._uses_onnx = True
-            from optimum.onnxruntime import ORTModelForFeatureExtraction
-            from transformers import AutoProcessor
-
-            self.processor = AutoProcessor.from_pretrained(
-                model_name,
-                local_files_only=True,
-                **transformers_pretrained_kwargs(prefer_slow=True),
-            )
-            self.model = ORTModelForFeatureExtraction.from_pretrained(
-                model_name,
-                provider=ort_provider_for_device(
-                    self.device,
-                    require_accelerator=self.device == "cuda",
-                ),
-                local_files_only=True,
-            )
-        else:
-            self._uses_onnx = False
-            AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
-            local_files_only = model_path.is_dir()
-            self.processor = AutoProcessor.from_pretrained(
-                model_name,
-                local_files_only=local_files_only,
-                **transformers_pretrained_kwargs(prefer_slow=True),
-            )
-            self.model = AutoModel.from_pretrained(
-                model_name,
-                local_files_only=local_files_only,
-            ).to(self.device)
-            self.model.eval()
+        local_files_only = model_path.is_dir()
+        self.processor = AutoProcessor.from_pretrained(
+            model_name,
+            local_files_only=local_files_only,
+            **transformers_pretrained_kwargs(prefer_slow=True),
+        )
+        self.model = AutoModel.from_pretrained(
+            model_name,
+            local_files_only=local_files_only,
+        ).to(self.device)
+        self.model.eval()
 
         self.text_max_length = int(self.model.config.text_config.max_position_embeddings)
 
     def encode_image(self, image_path: Path) -> DenseVector:
         with Image.open(image_path) as image:
             rgb_image = image.convert("RGB")
-            inputs = _prepare_transformer_inputs(
-                self.processor(images=rgb_image, return_tensors="pt"),
-                device=self.device,
-                move_to_device=not self._uses_onnx,
-            )
+            inputs = self.processor(images=rgb_image, return_tensors="pt")
+            inputs = _prepare_transformer_inputs(inputs, device=self.device)
         with self.torch.no_grad():
-            if hasattr(self.model, "get_image_features"):
-                features = self.model.get_image_features(**inputs)
-            else:
-                outputs = self.model(**inputs)
-                features = outputs.image_embeds
+            features = self.model.get_image_features(**inputs)
         return DenseVector.create(_normalized_values(self.torch, features))
 
     def encode_text(self, text: str) -> DenseVector:
-        # SigLIP text features are sensitive to padding strategy; fixed-length tokenization
-        # produces stable image-text similarity, while variable-length padding does not.
+        # SigLIPのテキスト特徴量はパディング戦略に敏感なため、固定長トークン化で安定した類似度を得る
         inputs = self.processor(
             text=[text],
             padding="max_length",
@@ -85,31 +57,16 @@ class WaonSiglipEncoder:
             max_length=self.text_max_length,
             return_tensors="pt",
         )
-        inputs = _prepare_transformer_inputs(
-            inputs,
-            device=self.device,
-            move_to_device=not self._uses_onnx,
-        )
+        inputs = _prepare_transformer_inputs(inputs, device=self.device)
         with self.torch.no_grad():
-            if hasattr(self.model, "get_text_features"):
-                features = self.model.get_text_features(**inputs)
-            else:
-                outputs = self.model(**inputs)
-                features = outputs.text_embeds
+            features = self.model.get_text_features(**inputs)
         return DenseVector.create(_normalized_values(self.torch, features))
 
     def encode_images(self, images: list[Image.Image]) -> list[DenseVector]:
-        inputs = _prepare_transformer_inputs(
-            self.processor(images=images, return_tensors="pt"),
-            device=self.device,
-            move_to_device=not self._uses_onnx,
-        )
+        inputs = self.processor(images=images, return_tensors="pt")
+        inputs = _prepare_transformer_inputs(inputs, device=self.device)
         with self.torch.no_grad():
-            if hasattr(self.model, "get_image_features"):
-                features = self.model.get_image_features(**inputs)
-            else:
-                outputs = self.model(**inputs)
-                features = outputs.image_embeds
+            features = self.model.get_image_features(**inputs)
         normalized = features / features.norm(dim=-1, keepdim=True).clamp(min=1e-12)
         batch_values = normalized.detach().cpu().tolist()
         return [DenseVector.create(row) for row in batch_values]
@@ -241,6 +198,8 @@ class SpladeJapaneseSparseEncoder:
             else:
                 results.append(SparseVector.create(indices, values))
         return results
+
+
 def _normalized_values(torch, tensor) -> list[float]:
     normalized = tensor / tensor.norm(dim=-1, keepdim=True).clamp(min=1e-12)
     return normalized.squeeze(0).detach().cpu().tolist()
@@ -250,7 +209,7 @@ def _prepare_transformer_inputs(
     inputs,
     *,
     device: str,
-    move_to_device: bool,
+    move_to_device: bool = True,
 ):
     prepared = inputs.to(device) if move_to_device and hasattr(inputs, "to") else inputs
     if isinstance(prepared, dict):
