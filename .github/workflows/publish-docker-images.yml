@@ -177,5 +177,11 @@ jobs:
             [ -n "${tag}" ] || continue
             tag_args+=("-t" "${tag}")
           done <<< "${TAGS}"
-          docker buildx imagetools create "${tag_args[@]}" \
-            $(printf '%s@sha256:%s ' "${IMAGE_NAME}" *)
+          source_args=()
+          while IFS= read -r source; do
+            [ -n "${source}" ] || continue
+            source_args+=("${source}")
+          done < <(
+            python3 "${GITHUB_WORKSPACE}/scripts/build_manifest_sources.py" "${IMAGE_NAME}" .
+          )
+          docker buildx imagetools create "${tag_args[@]}" "${source_args[@]}"
