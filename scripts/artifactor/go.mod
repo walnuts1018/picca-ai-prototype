@@ -1,4 +1,4 @@
-module github.com/walnuts1018/picca-ai-prototype/scripts/push-models-oci
+module github.com/walnuts1018/picca-ai-prototype/scripts/artifactor
 
 go 1.26.0
 
