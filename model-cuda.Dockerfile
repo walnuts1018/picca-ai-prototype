@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.2.1-cudnn-devel-ubuntu24.04 AS builder
+FROM nvidia/cuda:12.9.2-cudnn-devel-ubuntu24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive \
     UV_LINK_MODE=copy \
@@ -26,9 +26,11 @@ COPY src /app/src
 COPY scripts /app/scripts
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --group vision --python python3
+    uv sync --no-dev --group vision --python python3 && \
+    uv pip uninstall -y onnxruntime && \
+    uv pip install --no-deps onnxruntime-gpu==1.20.1
 
-FROM nvidia/cuda:13.2.1-cudnn-runtime-ubuntu24.04 AS runtime
+FROM nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 

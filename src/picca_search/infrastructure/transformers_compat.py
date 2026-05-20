@@ -58,17 +58,27 @@ def import_transformers_symbols(*names: str) -> tuple[Any, ...]:
     )
 
 
-def ort_provider_for_device(device: str) -> str:
+def ort_provider_for_device(device: str, *, require_accelerator: bool = False) -> str:
     preferred_provider = "CUDAExecutionProvider" if device == "cuda" else "CPUExecutionProvider"
     fallback_provider = "CPUExecutionProvider"
     try:
         import onnxruntime as ort
 
         available_providers = set(ort.get_available_providers())
-    except Exception:
+    except Exception as exc:
+        if require_accelerator and device == "cuda":
+            raise RuntimeError(
+                "MODEL_DEVICE=cuda was requested, but onnxruntime could not be imported. "
+                "Install the GPU runtime and verify CUDA libraries are available."
+            ) from exc
         return fallback_provider
     if preferred_provider in available_providers:
         return preferred_provider
+    if require_accelerator and device == "cuda":
+        raise RuntimeError(
+            "MODEL_DEVICE=cuda was requested, but CUDAExecutionProvider is unavailable. "
+            f"Available providers: {sorted(available_providers)}"
+        )
     if fallback_provider in available_providers:
         return fallback_provider
     return preferred_provider

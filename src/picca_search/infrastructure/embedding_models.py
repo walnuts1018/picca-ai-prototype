@@ -35,7 +35,10 @@ class WaonSiglipEncoder:
             )
             self.model = ORTModelForFeatureExtraction.from_pretrained(
                 model_name,
-                provider=ort_provider_for_device(self.device),
+                provider=ort_provider_for_device(
+                    self.device,
+                    require_accelerator=self.device == "cuda",
+                ),
                 local_files_only=True,
             )
         else:
@@ -133,7 +136,10 @@ class SpladeJapaneseSparseEncoder:
             )
             self.model = ORTModelForMaskedLM.from_pretrained(
                 model_name,
-                provider=ort_provider_for_device(self.device),
+                provider=ort_provider_for_device(
+                    self.device,
+                    require_accelerator=self.device == "cuda",
+                ),
                 local_files_only=True,
             )
         else:
