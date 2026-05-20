@@ -8,18 +8,16 @@ ARG TARGETARCH
 RUN mkdir ${ROOT}
 WORKDIR ${ROOT}
 
-COPY debug-web/go.mod debug-web/go.sum* ./debug-web/
-
-WORKDIR ${ROOT}/debug-web
+COPY debug-web/go.mod debug-web/go.sum* ./
 
 RUN --mount=type=cache,target=/go/pkg/mod/ \
     --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
-    GOWORK=off go mod download -x
+    go mod download -x
 
 COPY debug-web/ .
 RUN --mount=type=cache,target=/go/pkg/mod/ \
     --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
-    GOWORK=off GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -o /out/debug-web ./cmd/debug-web && \
+    GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -o /out/debug-web ./cmd/debug-web && \
     chmod +x /out/debug-web
 
 FROM gcr.io/distroless/cc-debian13:nonroot
