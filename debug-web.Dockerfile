@@ -1,16 +1,32 @@
-FROM golang:1.26.3 AS build
-WORKDIR /src
+# syntax=docker/dockerfile:1
+FROM golang:1.26.3-trixie AS builder
+
+ENV ROOT=/build
+ARG BUILD_TAGS=""
+RUN mkdir ${ROOT}
+WORKDIR ${ROOT}
+
 COPY go.work ./
 COPY debug-web/go.mod debug-web/go.sum* ./debug-web/
-WORKDIR /src/debug-web
-RUN go mod download
-COPY debug-web/ ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/debug-web ./cmd/debug-web
 
-FROM gcr.io/distroless/base-debian12
+WORKDIR ${ROOT}/debug-web
+
+RUN --mount=type=cache,target=/go/pkg/mod/ \
+    --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    go mod download -x
+
+COPY debug-web/ .
+RUN --mount=type=cache,target=/go/pkg/mod/ \
+    --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    GOOS=linux go build -trimpath -o /out/debug-web ./cmd/debug-web && \
+    chmod +x /out/debug-web
+
+FROM gcr.io/distroless/cc-debian13:nonroot
 WORKDIR /app
-COPY --from=build /out/debug-web /app/debug-web
+
+COPY --from=builder /out/debug-web /app/debug-web
 COPY debug-web/internal/web/templates /app/internal/web/templates
-VOLUME ["/data"]
+
 EXPOSE 8080
+
 ENTRYPOINT ["/app/debug-web"]
