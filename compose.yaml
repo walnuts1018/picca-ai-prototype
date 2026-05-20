@@ -19,7 +19,8 @@ services:
   seaweedfs:
     image: chrislusf/seaweedfs:4.26
     ports:
-      - "8333:8333"
+      - "8333:8333" # S3 API
+      - "8888:8888" # Filer
     environment:
       AWS_ACCESS_KEY_ID: seaweedfs
       AWS_SECRET_ACCESS_KEY: seaweedfs
