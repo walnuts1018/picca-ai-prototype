@@ -20,11 +20,18 @@
 # モデルのダウンロードと ONNX エクスポートを事前に実行
 uv run scripts/prepare_models.py --output-dir models/
 
+# 生成済みモデルを OCI Artifact として push
+export GITHUB_ACTOR=your-username
+export GITHUB_TOKEN=your-token
+go run ./scripts/push_models_oci --dir models --repo ghcr.io/your-org/picca-models --tag latest
+
 # 起動
 docker compose up --build
 ```
 
 デフォルトの Compose は、ローカルの `./models` ディレクトリをコンテナにマウントし、事前に保存したローカルモデルだけを使用します。これにより、起動時のモデルダウンロードを回避します。
+
+`scripts/push_models_oci` は `./models` 配下のトップレベルエントリを `linux/amd64` 固定の単一 OCI manifest として registry に push します。トップレベルのディレクトリは一時的に `tar.gz` layer 化し、通常ファイルはそのまま layer として扱います。認証情報は `--username` / `--password` または `OCI_REGISTRY_USERNAME` / `OCI_REGISTRY_PASSWORD`、GHCR の場合は `GITHUB_ACTOR` / `GITHUB_TOKEN` も利用できます。
 
 全モデルを `MODEL_DEVICE=cpu` で起動します。モデル単位で CUDA に切り替えたい場合は、対象サービスの image / Dockerfile を `model-cuda.Dockerfile` ベースに差し替え、`MODEL_DEVICE=cuda` を指定してください。
 
