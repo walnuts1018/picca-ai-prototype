@@ -25,6 +25,7 @@ class WaonSiglipEncoder:
 
         model_path = Path(model_name)
         if model_path.is_dir() and (model_path / "model.onnx").exists():
+            self._uses_onnx = True
             from optimum.onnxruntime import ORTModelForFeatureExtraction
             from transformers import AutoProcessor
 
@@ -42,6 +43,7 @@ class WaonSiglipEncoder:
                 local_files_only=True,
             )
         else:
+            self._uses_onnx = False
             AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
             local_files_only = model_path.is_dir()
             self.processor = AutoProcessor.from_pretrained(
@@ -60,7 +62,11 @@ class WaonSiglipEncoder:
     def encode_image(self, image_path: Path) -> DenseVector:
         with Image.open(image_path) as image:
             rgb_image = image.convert("RGB")
-            inputs = self.processor(images=rgb_image, return_tensors="pt").to(self.device)
+            inputs = _prepare_transformer_inputs(
+                self.processor(images=rgb_image, return_tensors="pt"),
+                device=self.device,
+                move_to_device=not self._uses_onnx,
+            )
         with self.torch.no_grad():
             if hasattr(self.model, "get_image_features"):
                 features = self.model.get_image_features(**inputs)
@@ -78,7 +84,12 @@ class WaonSiglipEncoder:
             truncation=True,
             max_length=self.text_max_length,
             return_tensors="pt",
-        ).to(self.device)
+        )
+        inputs = _prepare_transformer_inputs(
+            inputs,
+            device=self.device,
+            move_to_device=not self._uses_onnx,
+        )
         with self.torch.no_grad():
             if hasattr(self.model, "get_text_features"):
                 features = self.model.get_text_features(**inputs)
@@ -88,7 +99,11 @@ class WaonSiglipEncoder:
         return DenseVector.create(_normalized_values(self.torch, features))
 
     def encode_images(self, images: list[Image.Image]) -> list[DenseVector]:
-        inputs = self.processor(images=images, return_tensors="pt").to(self.device)
+        inputs = _prepare_transformer_inputs(
+            self.processor(images=images, return_tensors="pt"),
+            device=self.device,
+            move_to_device=not self._uses_onnx,
+        )
         with self.torch.no_grad():
             if hasattr(self.model, "get_image_features"):
                 features = self.model.get_image_features(**inputs)
@@ -126,6 +141,7 @@ class SpladeJapaneseSparseEncoder:
 
         model_path = Path(model_name)
         if model_path.is_dir() and (model_path / "model.onnx").exists():
+            self._uses_onnx = True
             from optimum.onnxruntime import ORTModelForMaskedLM
             from transformers import AutoTokenizer
 
@@ -143,6 +159,7 @@ class SpladeJapaneseSparseEncoder:
                 local_files_only=True,
             )
         else:
+            self._uses_onnx = False
             AutoModelForMaskedLM, AutoTokenizer = import_transformers_symbols(
                 "AutoModelForMaskedLM",
                 "AutoTokenizer",
@@ -170,7 +187,12 @@ class SpladeJapaneseSparseEncoder:
             return_tensors="pt",
             truncation=True,
             max_length=self.max_length,
-        ).to(self.device)
+        )
+        inputs = _prepare_transformer_inputs(
+            inputs,
+            device=self.device,
+            move_to_device=not self._uses_onnx,
+        )
         with self.torch.no_grad():
             logits = self.model(**inputs).logits
             weights = self.torch.log1p(self.torch.relu(logits))
@@ -195,7 +217,12 @@ class SpladeJapaneseSparseEncoder:
             padding=True,
             truncation=True,
             max_length=self.max_length,
-        ).to(self.device)
+        )
+        inputs = _prepare_transformer_inputs(
+            inputs,
+            device=self.device,
+            move_to_device=not self._uses_onnx,
+        )
         with self.torch.no_grad():
             logits = self.model(**inputs).logits
             weights = self.torch.log1p(self.torch.relu(logits))
@@ -217,6 +244,18 @@ class SpladeJapaneseSparseEncoder:
 def _normalized_values(torch, tensor) -> list[float]:
     normalized = tensor / tensor.norm(dim=-1, keepdim=True).clamp(min=1e-12)
     return normalized.squeeze(0).detach().cpu().tolist()
+
+
+def _prepare_transformer_inputs(
+    inputs,
+    *,
+    device: str,
+    move_to_device: bool,
+):
+    prepared = inputs.to(device) if move_to_device and hasattr(inputs, "to") else inputs
+    if isinstance(prepared, dict):
+        return {key: value for key, value in prepared.items() if value is not None}
+    return prepared
 
 
 def _resolve_sparse_max_length(
