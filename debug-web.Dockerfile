@@ -3,6 +3,8 @@ FROM golang:1.26.3-trixie AS builder
 
 ENV ROOT=/build
 ARG BUILD_TAGS=""
+ARG TARGETOS
+ARG TARGETARCH
 RUN mkdir ${ROOT}
 WORKDIR ${ROOT}
 
@@ -18,7 +20,7 @@ RUN --mount=type=cache,target=/go/pkg/mod/ \
 COPY debug-web/ .
 RUN --mount=type=cache,target=/go/pkg/mod/ \
     --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
-    GOOS=linux go build -trimpath -o /out/debug-web ./cmd/debug-web && \
+    GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -o /out/debug-web ./cmd/debug-web && \
     chmod +x /out/debug-web
 
 FROM gcr.io/distroless/cc-debian13:nonroot
