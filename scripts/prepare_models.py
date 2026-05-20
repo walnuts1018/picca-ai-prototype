@@ -3,6 +3,7 @@ import argparse
 import logging
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
@@ -42,6 +43,39 @@ def export_hf_to_onnx(model_id: str, output_dir: Path, task: str = "feature-extr
     logger.info(f"Successfully exported {model_id} to {output_path}")
 
 
+def export_paddle_to_onnx(model_dir: Path) -> None:
+    """Convert Paddle inference models to ONNX using paddle2onnx CLI."""
+    # Check for Paddle 3.0+ json format first, then traditional pdmodel
+    model_file = model_dir / "inference.json"
+    if not model_file.exists():
+        model_file = model_dir / "inference.pdmodel"
+
+    params_file = model_dir / "inference.pdiparams"
+    output_file = model_dir / "inference.onnx"
+
+    if not model_file.exists() or not params_file.exists():
+        logger.debug(f"Skipping {model_dir}: required Paddle files not found.")
+        return
+
+    logger.info(f"Converting Paddle model in {model_dir} to ONNX...")
+    try:
+        cmd = [
+            "python", "-m", "paddle2onnx.command",
+            "--model_dir", str(model_dir),
+            "--model_filename", model_file.name,
+            "--params_filename", params_file.name,
+            "--save_file", str(output_file),
+            "--opset_version", "11",
+            "--enable_onnx_checker", "True"
+        ]
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        logger.info(f"Successfully exported to {output_file}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to convert {model_dir} to ONNX: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Error during conversion of {model_dir}: {e}")
+
+
 def download_hf_model(model_id: str, output_dir: Path) -> None:
     logger.info(f"Downloading {model_id} PyTorch weights...")
     output_path = output_dir / model_id.split("/")[-1]
@@ -60,6 +94,15 @@ def prepare_paddleocr(output_dir: Path) -> None:
     os.environ["PADDLEX_HOME"] = str(paddlex_home.absolute())
     
     try:
+        # Install HPI dependencies if needed (for ONNX Runtime support)
+        # We try to install GPU version as requested, but fall back if it fails
+        logger.info("Installing HPI dependencies...")
+        try:
+            subprocess.run(["paddlex", "--install", "hpi-gpu"], check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            logger.warning("Failed to install hpi-gpu, trying hpi-cpu...")
+            subprocess.run(["paddlex", "--install", "hpi-cpu"], check=False)
+        
         from paddleocr import PaddleOCRVL, TextDetection
         
         logger.info(f"Initializing TextDetection model...")
@@ -67,21 +110,16 @@ def prepare_paddleocr(output_dir: Path) -> None:
         
         logger.info(f"Initializing PaddleOCRVL pipeline...")
         PaddleOCRVL(pipeline_version="v1")
-        
-        # Manually copy from default cache if not in paddlex_home
-        default_paddlex_home = Path.home() / ".paddlex"
-        if default_paddlex_home.exists() and not (paddlex_home / "official_models").exists():
-            logger.info(f"Copying models from {default_paddlex_home} to {paddlex_home}...")
-            paddlex_home.mkdir(parents=True, exist_ok=True)
-            # Copy the official_models directory
-            src = default_paddlex_home / "official_models"
-            dst = paddlex_home / "official_models"
-            if src.exists():
-                if dst.exists():
-                    shutil.rmtree(dst)
-                shutil.copytree(src, dst)
 
         logger.info(f"PaddleOCR models prepared in {paddlex_home}")
+
+        # Export all official Paddle models to ONNX
+        official_models_dir = paddlex_home / "official_models"
+        if official_models_dir.exists():
+            for model_path in official_models_dir.rglob("*"):
+                if model_path.is_dir():
+                    export_paddle_to_onnx(model_path)
+
         logger.info("Hint: To mount these in Docker, ensure ./models is mounted to /models and PADDLEX_HOME=/models/paddlex is set.")
     except ImportError:
         logger.warning("paddleocr not installed, skipping PaddleOCR model preparation.")

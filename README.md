@@ -31,11 +31,12 @@ docker compose up --build
 ## ONNX Integration
 
 標準的な Hugging Face モデル（SigLIP, SPLADE, CAT-Translate）は ONNX Runtime で動作します。
-`scripts/prepare_models.py` は以下の処理を行い、全て `./models` ディレクトリに集約します：
-- **ONNX Export:** SigLIP, SPLADE, CAT-Translate を ONNX 形式で保存。
-- **Local Caching:** Florence-2 を PyTorch 形式、PaddleOCR を PaddleX 形式 (`./models/paddlex`) で保存。
+`scripts/prepare_models.py` は以下の処理を行います：
+- **ONNX Export:** SigLIP, SPLADE, CAT-Translate を ONNX 形式で `./models` に保存。
+- **Paddle OCR ONNX:** PaddleOCR モデルも `./models/paddlex` にダウンロードされ、`paddle2onnx` によって `.onnx` 形式に変換されます。
+- **Local Caching:** Florence-2 を PyTorch 形式で `./models` に保存。
 
-インフラ層は、指定ディレクトリに `.onnx` ファイルがあれば自動的に ONNX Runtime を使用し、なければ PyTorch にフォールバックします。PaddleOCR は `PADDLEX_HOME` 環境変数を通じて `./models/paddlex` を参照します。
+インフラ層は、指定ディレクトリに `.onnx` ファイルがあれば自動的に ONNX Runtime を使用します。PaddleOCR は `PADDLEX_HOME=/models/paddlex` を通じて、ONNX Runtime (HPI/Ultra-Infer) 后端を利用して高速に動作します。
 
 ## Upload + Publish
 

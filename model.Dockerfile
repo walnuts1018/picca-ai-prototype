@@ -13,7 +13,9 @@ COPY src /app/src
 COPY scripts /app/scripts
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --group vision
+    uv sync --no-dev --group vision && \
+    uv pip install pip && \
+    uv run paddlex --install hpi-cpu
 
 FROM python:3.12-slim AS runtime
 

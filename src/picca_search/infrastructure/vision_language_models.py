@@ -51,9 +51,23 @@ class PaddleOcrVlTextExtractor:
                 hidden_import_packages=OPTIONAL_PADDLEOCR_IMPORT_PROBES,
                 hidden_distribution_names=OPTIONAL_PADDLEOCR_DISTRIBUTIONS,
             )
+
+            # Check if HPI is available
+            hpi_available = False
+            try:
+                importlib.import_module("ultra_infer")
+                hpi_available = True
+            except ImportError:
+                pass
+
             if text_detector is None:
-                text_detector = TextDetection(model_name=text_detector_model_name)
+                text_detector = TextDetection(
+                    model_name=text_detector_model_name,
+                    enable_hpi=hpi_available,
+                )
             if vl_pipeline is None:
+                # Set enable_hpi if not present
+                pipeline_options.setdefault("enable_hpi", hpi_available)
                 vl_pipeline = PaddleOCRVL(
                     pipeline_version=pipeline_version, **pipeline_options
                 )
@@ -181,7 +195,9 @@ class JapaneseTranslator:
         self.prompt_template = CAT_TRANSLATE_PROMPT
 
         model_path = Path(model_name)
-        if model_path.is_dir() and (model_path / "decoder_model.onnx").exists():
+        if model_path.is_dir() and (
+            (model_path / "model.onnx").exists() or (model_path / "decoder_model.onnx").exists()
+        ):
             from optimum.onnxruntime import ORTModelForCausalLM
             from transformers import AutoTokenizer
 
@@ -199,7 +215,7 @@ class JapaneseTranslator:
                 model_name,
                 torch_dtype=self.torch_dtype,
             ).to(self.device)
-        self.model.eval()
+            self.model.eval()
 
     def translate(self, text: str) -> str:
         prompt = self.prompt_template.format(

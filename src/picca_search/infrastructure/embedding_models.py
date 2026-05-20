@@ -32,9 +32,9 @@ class WaonSiglipEncoder:
             AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
             self.processor = AutoProcessor.from_pretrained(model_name)
             self.model = AutoModel.from_pretrained(model_name).to(self.device)
+            self.model.eval()
 
         self.text_max_length = int(self.model.config.text_config.max_position_embeddings)
-        self.model.eval()
 
     def encode_image(self, image_path: Path) -> DenseVector:
         with Image.open(image_path) as image:
@@ -119,12 +119,12 @@ class SpladeJapaneseSparseEncoder:
             )
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             self.model = AutoModelForMaskedLM.from_pretrained(model_name).to(self.device)
+            self.model.eval()
 
         self.max_length = _resolve_sparse_max_length(
             tokenizer_max_length=getattr(self.tokenizer, "model_max_length", None),
             model_max_length=getattr(self.model.config, "max_position_embeddings", None),
         )
-        self.model.eval()
 
     def encode_text(self, text: str) -> SparseVector:
         inputs = self.tokenizer(
