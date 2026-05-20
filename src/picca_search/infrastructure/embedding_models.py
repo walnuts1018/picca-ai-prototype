@@ -5,7 +5,11 @@ from pathlib import Path
 from PIL import Image
 
 from picca_search.domain import DenseVector, SparseVector
-from picca_search.infrastructure.transformers_compat import import_transformers_symbols
+from picca_search.infrastructure.transformers_compat import (
+    import_transformers_symbols,
+    ort_provider_for_device,
+    transformers_pretrained_kwargs,
+)
 
 
 WAON_SIGLIP_MODEL = "llm-jp/waon-siglip2-base-patch16-256"
@@ -24,10 +28,14 @@ class WaonSiglipEncoder:
             from optimum.onnxruntime import ORTModelForFeatureExtraction
             from transformers import AutoProcessor
 
-            self.processor = AutoProcessor.from_pretrained(model_name, local_files_only=True)
+            self.processor = AutoProcessor.from_pretrained(
+                model_name,
+                local_files_only=True,
+                **transformers_pretrained_kwargs(prefer_slow=True),
+            )
             self.model = ORTModelForFeatureExtraction.from_pretrained(
                 model_name,
-                provider=_get_ort_provider(self.device),
+                provider=ort_provider_for_device(self.device),
                 local_files_only=True,
             )
         else:
@@ -36,6 +44,7 @@ class WaonSiglipEncoder:
             self.processor = AutoProcessor.from_pretrained(
                 model_name,
                 local_files_only=local_files_only,
+                **transformers_pretrained_kwargs(prefer_slow=True),
             )
             self.model = AutoModel.from_pretrained(
                 model_name,
@@ -117,10 +126,14 @@ class SpladeJapaneseSparseEncoder:
             from optimum.onnxruntime import ORTModelForMaskedLM
             from transformers import AutoTokenizer
 
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                local_files_only=True,
+                **transformers_pretrained_kwargs(prefer_slow=False),
+            )
             self.model = ORTModelForMaskedLM.from_pretrained(
                 model_name,
-                provider=_get_ort_provider(self.device),
+                provider=ort_provider_for_device(self.device),
                 local_files_only=True,
             )
         else:
@@ -132,6 +145,7 @@ class SpladeJapaneseSparseEncoder:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name,
                 local_files_only=local_files_only,
+                **transformers_pretrained_kwargs(prefer_slow=False),
             )
             self.model = AutoModelForMaskedLM.from_pretrained(
                 model_name,
@@ -194,17 +208,6 @@ class SpladeJapaneseSparseEncoder:
             else:
                 results.append(SparseVector.create(indices, values))
         return results
-
-
-def _get_ort_provider(device: str) -> str:
-    if device == "cuda":
-        return "CUDAExecutionProvider"
-    if device == "mps":
-        # MPS is not well-supported in ORT yet, fallback to CPU or try CoreML
-        return "CPUExecutionProvider"
-    return "CPUExecutionProvider"
-
-
 def _normalized_values(torch, tensor) -> list[float]:
     normalized = tensor / tensor.norm(dim=-1, keepdim=True).clamp(min=1e-12)
     return normalized.squeeze(0).detach().cpu().tolist()

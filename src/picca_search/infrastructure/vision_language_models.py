@@ -9,6 +9,8 @@ from PIL import Image
 from picca_search.infrastructure.transformers_compat import (
     import_module_symbols,
     import_transformers_symbols,
+    ort_provider_for_device,
+    transformers_pretrained_kwargs,
 )
 
 
@@ -218,10 +220,13 @@ class JapaneseTranslator:
             from optimum.onnxruntime import ORTModelForCausalLM
             from transformers import AutoTokenizer
 
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                **transformers_pretrained_kwargs(prefer_slow=False),
+            )
             self.model = ORTModelForCausalLM.from_pretrained(
                 model_name,
-                provider=_get_ort_provider(self.device),
+                provider=ort_provider_for_device(self.device),
                 local_files_only=True,
             )
         else:
@@ -232,6 +237,7 @@ class JapaneseTranslator:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name,
                 local_files_only=_is_local_model_dir(model_name),
+                **transformers_pretrained_kwargs(prefer_slow=False),
             )
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
@@ -283,17 +289,6 @@ class Florence2WithJapaneseTranslation:
         if not english_caption:
             return ""
         return self.translator.translate(english_caption)
-
-
-def _get_ort_provider(device: str) -> str:
-    if device == "cuda":
-        return "CUDAExecutionProvider"
-    if device == "mps":
-        # MPS is not well-supported in ORT yet, fallback to CPU or try CoreML
-        return "CPUExecutionProvider"
-    return "CPUExecutionProvider"
-
-
 def _configure_paddlex_environment(paddlex_home: Path) -> None:
     resolved = str(paddlex_home.resolve())
     os.environ["PADDLEX_HOME"] = resolved

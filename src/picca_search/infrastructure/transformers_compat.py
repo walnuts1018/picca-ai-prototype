@@ -56,3 +56,26 @@ def import_transformers_symbols(*names: str) -> tuple[Any, ...]:
         *names,
         hidden_import_packages=OPTIONAL_TRANSFORMERS_IMPORT_PROBES,
     )
+
+
+def ort_provider_for_device(device: str) -> str:
+    preferred_provider = "CUDAExecutionProvider" if device == "cuda" else "CPUExecutionProvider"
+    fallback_provider = "CPUExecutionProvider"
+    try:
+        import onnxruntime as ort
+
+        available_providers = set(ort.get_available_providers())
+    except Exception:
+        return fallback_provider
+    if preferred_provider in available_providers:
+        return preferred_provider
+    if fallback_provider in available_providers:
+        return fallback_provider
+    return preferred_provider
+
+
+def transformers_pretrained_kwargs(*, prefer_slow: bool) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"fix_mistral_regex": True}
+    if prefer_slow:
+        kwargs["use_fast"] = False
+    return kwargs
