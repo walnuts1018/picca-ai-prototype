@@ -39,6 +39,7 @@ docker compose up --build
 GitHub Actions は `main` push または `workflow_dispatch` で以下を GHCR に publish します。
 
 - `ghcr.io/<owner>/picca-ai-prototype-gateway`: `linux/amd64` + `linux/arm64`
+- `ghcr.io/<owner>/picca-ai-prototype-debug-web`: `linux/amd64`
 - `ghcr.io/<owner>/picca-ai-prototype-model`: `linux/amd64`
 - `ghcr.io/<owner>/picca-ai-prototype-model-cuda`: `linux/amd64`
 
