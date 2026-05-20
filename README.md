@@ -33,6 +33,22 @@ docker compose up --build
 
 `scripts/push_models_oci` は `./models` 配下のトップレベルエントリを `linux/amd64` 固定の単一 OCI manifest として registry に push します。トップレベルのディレクトリは一時的に `tar.gz` layer 化し、通常ファイルはそのまま layer として扱います。認証情報は `--username` / `--password` または `OCI_REGISTRY_USERNAME` / `OCI_REGISTRY_PASSWORD`、GHCR の場合は `GITHUB_ACTOR` / `GITHUB_TOKEN` も利用できます。
 
+## Published Images
+
+GitHub Actions は `main` push または `workflow_dispatch` で以下を GHCR に publish します。
+
+- `ghcr.io/<owner>/picca-ai-prototype-gateway`: `linux/amd64` + `linux/arm64`
+- `ghcr.io/<owner>/picca-ai-prototype-model`: `linux/amd64`
+- `ghcr.io/<owner>/picca-ai-prototype-model-cuda`: `linux/amd64`
+
+## Published Model Artifact
+
+GitHub Actions の `Publish Model Artifact` workflow は `workflow_dispatch` でのみ実行され、`HF_TOKEN` secret を使ってモデルをダウンロードしてから、以下へ OCI Artifact として push します。
+
+- `ghcr.io/<owner>/picca-ai-prototype-models:<image_tag>`
+
+manual 実行時は `image_tag` input が必須で、既定値は `dev` です。
+
 全モデルを `MODEL_DEVICE=cpu` で起動します。モデル単位で CUDA に切り替えたい場合は、対象サービスの image / Dockerfile を `model-cuda.Dockerfile` ベースに差し替え、`MODEL_DEVICE=cuda` を指定してください。
 
 ## ONNX Integration

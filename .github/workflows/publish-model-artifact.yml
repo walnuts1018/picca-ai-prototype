@@ -1,0 +1,66 @@
+name: Publish Model Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag for manual publishing.
+        required: true
+        default: dev
+
+concurrency:
+  group: publish-model-artifact-${{ github.ref }}-${{ inputs.image_tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  MODEL_ARTIFACT_REPOSITORY: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-models
+
+jobs:
+  publish-model-artifact:
+    name: Download models and push OCI artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: scripts/push_models_oci/go.mod
+          cache-dependency-path: scripts/push_models_oci/go.sum
+
+      - name: Prepare model files
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          uv sync --frozen --no-dev --group vision
+          uv run --frozen --no-sync scripts/prepare_models.py --output-dir models
+
+      - name: Push OCI artifact to GHCR
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          go run ./scripts/push_models_oci \
+            --dir models \
+            --repo "${{ env.MODEL_ARTIFACT_REPOSITORY }}" \
+            --tag "${{ inputs.image_tag }}"
