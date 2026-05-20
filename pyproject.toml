@@ -16,7 +16,7 @@ dependencies = [
     "qdrant-client>=1.14.0",
     "optimum[onnxruntime]",
     "timm>=1.0.27",
-    "torch>=2.3.0",
+    "torch>=2.4.0,<2.5.0",
     "transformers>=4.45.0,<5",
     "unidic-lite>=1.0.8",
     "uvicorn>=0.30.0",
@@ -45,9 +45,9 @@ testpaths = ["tests"]
 packages = ["src/picca_search"]
 
 [[tool.uv.index]]
-name = "pytorch-cu118"
-url = "https://download.pytorch.org/whl/cu118"
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu118" }
+torch = { index = "pytorch-cu121" }
