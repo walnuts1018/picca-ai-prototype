@@ -1,6 +1,6 @@
 module github.com/walnuts1018/picca-ai-prototype/scripts/artifactor
 
-go 1.26.0
+go 1.26.3
 
 require (
 	github.com/opencontainers/image-spec v1.1.1
