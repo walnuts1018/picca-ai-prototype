@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,7 @@ class GatewaySettings:
     def from_env(cls) -> "GatewaySettings":
         return cls(
             host=os.getenv("GATEWAY_HOST", "0.0.0.0"),
-            port=int(os.getenv("GATEWAY_PORT", "8000")),
+            port=_parse_port_env("GATEWAY_PORT", 8000),
             qdrant_url=os.getenv("QDRANT_URL", "http://qdrant:6333"),
             qdrant_collection=os.getenv("QDRANT_COLLECTION", "picca_images"),
             rabbitmq_url=os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/%2F"),
@@ -45,3 +46,17 @@ class GatewaySettings:
             batch_size=int(os.getenv("INGEST_BATCH_SIZE", "8")),
             batch_wait_seconds=float(os.getenv("INGEST_BATCH_WAIT_SECONDS", "2.0")),
         )
+
+
+def _parse_port_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    try:
+        return int(raw_value)
+    except ValueError:
+        parsed = urlparse(raw_value)
+        if parsed.port is not None:
+            return parsed.port
+        raise ValueError(f"{name} must be an integer or URL with an explicit port: {raw_value!r}") from None
