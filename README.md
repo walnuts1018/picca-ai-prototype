@@ -5,6 +5,7 @@
 ## Services
 
 - `gateway`: 検索 HTTP API と RabbitMQ consumer
+- `debug-web`: debug 用の upload/search UI、sqlite status tracker、S3 image proxy
 - `dense-service`: WAON SigLIP
 - `sparse-service`: light-SPLADE Japanese
 - `ocr-service`: PaddleOCR-VL
@@ -77,6 +78,31 @@ uv run python scripts/search_api_client.py "赤い鳥居が写っている写真
 ```
 
 `dense_weight`, `ocr_weight`, `florence_weight`, `limit` は optional に指定できます。
+
+## Debug Web
+
+`debug-web` は 1 画面の簡易 UI です。複数画像 upload、RabbitMQ publish、画像ごとの取り込み状態表示、検索ボックス、検索結果の画像 proxy と score breakdown 表示を行います。
+
+```bash
+docker compose up --build debug-web gateway rabbitmq seaweedfs qdrant dense-service sparse-service ocr-service caption-service
+```
+
+起動後:
+
+- Debug Web: `http://localhost:8080`
+- Gateway Search API: `http://localhost:8000/search`
+
+主な環境変数:
+
+- `DEBUG_WEB_HOST`, `DEBUG_WEB_PORT`
+- `GATEWAY_BASE_URL`
+- `SQLITE_PATH`
+- `STATUS_POLL_INTERVAL_MS`
+- `SEARCH_TIMEOUT_SECONDS`
+- `UPLOAD_OBJECT_PREFIX`
+- `RABBITMQ_URL`, `RABBITMQ_QUEUE`, `RABBITMQ_RESULT_QUEUE`
+- `S3_ENDPOINT_URL`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
+- `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ROLE_ARN`, `AWS_REGION`, `AWS_ENDPOINT_URL_S3`, `AWS_ENDPOINT_URL_STS`
 
 ## Runtime Notes
 

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Debug Web</title>
+  <style>
+    :root { font-family: sans-serif; }
+    body { margin: 24px; background: #f6f6f6; color: #222; }
+    h1, h2 { margin-bottom: 12px; }
+    section { background: #fff; border: 1px solid #ddd; padding: 16px; margin-bottom: 16px; }
+    form { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    input[type="text"], input[type="number"] { min-width: 280px; padding: 6px 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+    th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; text-align: left; }
+    img { max-width: 120px; max-height: 120px; display: block; }
+    .error { color: #b00020; margin: 0 0 12px; }
+    .muted { color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Debug Web</h1>
+
+  {{if .FlashError}}
+  <p class="error">{{.FlashError}}</p>
+  {{end}}
+
+  <section>
+    <h2>Upload</h2>
+    <form action="/uploads" method="post" enctype="multipart/form-data">
+      <input type="file" name="images" accept="image/*" multiple required>
+      <button type="submit">Upload + Publish</button>
+    </form>
+    <p class="muted">status poll interval: {{.StatusPollInterval}}</p>
+    <table id="uploads-table">
+      <thead>
+        <tr>
+          <th>Image</th>
+          <th>Filename</th>
+          <th>Image ID</th>
+          <th>Status</th>
+          <th>Updated</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Uploads}}
+        <tr>
+          <td><img src="{{.ImageSrc}}" alt="{{.Filename}}"></td>
+          <td>{{.Filename}}</td>
+          <td>{{.ImageID}}</td>
+          <td>{{.Status}}</td>
+          <td>{{.UpdatedAt}}</td>
+          <td>{{.ErrorMessage}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6">No uploads yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Search</h2>
+    <form action="/search" method="post">
+      <input type="text" name="query" value="{{.Search.Query}}" placeholder="検索文字列" required>
+      <input type="number" name="limit" value="{{.Search.Limit}}" min="1">
+      <button type="submit">Search</button>
+    </form>
+    {{if .Search.Results}}
+    <table>
+      <thead>
+        <tr>
+          <th>Image</th>
+          <th>Image ID</th>
+          <th>Total</th>
+          <th>Dense</th>
+          <th>OCR</th>
+          <th>Florence</th>
+          <th>Caption</th>
+          <th>OCR Text</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Search.Results}}
+        <tr>
+          <td><img src="{{.ImageSrc}}" alt="{{.ImageID}}"></td>
+          <td>{{.ImageID}}</td>
+          <td>{{printf "%.6f" .Score}}</td>
+          <td>{{with .ScoreBreakdown}}{{printf "%.6f" .DenseScore}}{{else}}0{{end}}</td>
+          <td>{{with .ScoreBreakdown}}{{printf "%.6f" .OCRScore}}{{else}}0{{end}}</td>
+          <td>{{with .ScoreBreakdown}}{{printf "%.6f" .FlorenceScore}}{{else}}0{{end}}</td>
+          <td>{{.Caption}}</td>
+          <td>{{.OCRText}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </section>
+
+  <script>
+    const pollInterval = {{.StatusPollIntervalMillis}};
+    async function refreshStatuses() {
+      const response = await fetch('/uploads/statuses');
+      if (!response.ok) return;
+      const rows = await response.json();
+      const tbody = document.querySelector('#uploads-table tbody');
+      tbody.innerHTML = '';
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6">No uploads yet.</td></tr>';
+        return;
+      }
+      for (const row of rows) {
+        tbody.insertAdjacentHTML('beforeend', `
+          <tr>
+            <td><img src="${row.image_src}" alt="${row.filename}"></td>
+            <td>${row.filename}</td>
+            <td>${row.image_id}</td>
+            <td>${row.status}</td>
+            <td>${row.updated_at}</td>
+            <td>${row.error_message ?? ''}</td>
+          </tr>
+        `);
+      }
+    }
+    setInterval(refreshStatuses, pollInterval);
+  </script>
+</body>
+</html>
