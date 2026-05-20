@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -75,5 +76,27 @@ func TestRepositoryListRecentOrdersNewestFirst(t *testing.T) {
 	}
 	if got[0].ImageID != "debug/b.jpg" {
 		t.Fatalf("first image = %q", got[0].ImageID)
+	}
+}
+
+func TestOpenCreatesParentDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "debug-web.sqlite")
+
+	repo, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+
+	if err := repo.UpsertQueued(context.Background(), ImageRecord{
+		ImageID:     "debug/a.jpg",
+		ObjectKey:   "debug/a.jpg",
+		Filename:    "a.jpg",
+		ContentType: "image/jpeg",
+		Status:      "queued",
+		UploadedAt:  time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -4,6 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -25,16 +29,25 @@ type Repository struct {
 }
 
 func Open(path string) (*Repository, error) {
+	if shouldCreateParentDir(path) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return nil, fmt.Errorf("create sqlite directory for %s: %w", path, err)
+		}
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open sqlite database %s: %w", path, err)
 	}
 	repo := &Repository{db: db}
 	if err := repo.init(); err != nil {
 		_ = db.Close()
-		return nil, err
+		return nil, fmt.Errorf("initialize sqlite database %s: %w", path, err)
 	}
 	return repo, nil
+}
+
+func shouldCreateParentDir(path string) bool {
+	return path != "" && path != ":memory:" && !strings.HasPrefix(path, "file:")
 }
 
 func (r *Repository) Close() error {
