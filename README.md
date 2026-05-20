@@ -24,7 +24,7 @@ uv run scripts/prepare_models.py --output-dir models/
 docker compose up --build
 ```
 
-デフォルトの Compose は、ローカルの `./models` ディレクトリをコンテナにマウントし、ONNX モデル（存在する場合）またはキャッシュされた PyTorch モデルを使用します。これにより、起動時のダウンロードを回避し、推論を高速化します。
+デフォルトの Compose は、ローカルの `./models` ディレクトリをコンテナにマウントし、事前に保存したローカルモデルだけを使用します。これにより、起動時のモデルダウンロードを回避します。
 
 全モデルを `MODEL_DEVICE=cpu` で起動します。モデル単位で CUDA に切り替えたい場合は、対象サービスの image / Dockerfile を `model-cuda.Dockerfile` ベースに差し替え、`MODEL_DEVICE=cuda` を指定してください。
 
@@ -33,10 +33,10 @@ docker compose up --build
 標準的な Hugging Face モデル（SigLIP, SPLADE, CAT-Translate）は ONNX Runtime で動作します。
 `scripts/prepare_models.py` は以下の処理を行います：
 - **ONNX Export:** SigLIP, SPLADE, CAT-Translate を ONNX 形式で `./models` に保存。
-- **Paddle OCR ONNX:** PaddleOCR モデルも `./models/paddlex` にダウンロードされ、`paddle2onnx` によって `.onnx` 形式に変換されます。
+- **Paddle OCR Local Files:** PaddleOCR 用の `PP-OCRv5_mobile_det`、`PP-DocLayoutV2`、`PaddleOCR-VL` を `./models/paddlex/official_models` に保存します。
 - **Local Caching:** Florence-2 を PyTorch 形式で `./models` に保存。
 
-インフラ層は、指定ディレクトリに `.onnx` ファイルがあれば自動的に ONNX Runtime を使用します。PaddleOCR は `PADDLEX_HOME=/models/paddlex` を通じて、ONNX Runtime (HPI/Ultra-Infer) 后端を利用して高速に動作します。
+インフラ層は、指定ディレクトリに `.onnx` ファイルがあれば自動的に ONNX Runtime を使用します。PaddleOCR は `PADDLEX_HOME=/models/paddlex` 配下のローカルモデルディレクトリを明示的に参照し、`~/.paddlex` へのフォールバックや起動時ダウンロードを行わない構成です。
 
 ## Upload + Publish
 

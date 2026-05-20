@@ -8,10 +8,6 @@ from typing import Any, Iterator
 
 
 OPTIONAL_TRANSFORMERS_IMPORT_PROBES = {"scipy", "sklearn"}
-OPTIONAL_PADDLEOCR_IMPORT_PROBES = {"scipy", "sklearn"}
-OPTIONAL_PADDLEOCR_DISTRIBUTIONS = {"scikit-learn", "scipy"}
-
-
 @contextmanager
 def _hide_optional_packages(
     *,

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import importlib
+import os
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
 from picca_search.infrastructure.transformers_compat import (
-    OPTIONAL_PADDLEOCR_DISTRIBUTIONS,
-    OPTIONAL_PADDLEOCR_IMPORT_PROBES,
     import_module_symbols,
     import_transformers_symbols,
 )
@@ -16,6 +14,8 @@ from picca_search.infrastructure.transformers_compat import (
 
 PADDLE_OCR_VL_PIPELINE_VERSION = "v1"
 PP_OCR_V5_MOBILE_DET_MODEL = "PP-OCRv5_mobile_det"
+PP_DOC_LAYOUT_V2_MODEL = "PP-DocLayoutV2"
+PADDLE_OCR_VL_MODEL_DIRNAME = "PaddleOCR-VL"
 FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
 FLORENCE2_MORE_DETAILED_CAPTION = "<MORE_DETAILED_CAPTION>"
 CAT_TRANSLATE_MODEL = "cyberagent/CAT-Translate-0.8b"
@@ -33,6 +33,11 @@ class PaddleOcrVlTextExtractor:
         text_detector_box_thresh: float = 0.25,
         text_detector_limit_side_len: int = 960,
         min_box_area_ratio: float = 0.00002,
+        device: str | None = None,
+        paddlex_home: Path | None = None,
+        text_detector_model_dir: Path | None = None,
+        layout_detection_model_dir: Path | None = None,
+        vl_rec_model_dir: Path | None = None,
         text_detector: Any | None = None,
         vl_pipeline: Any | None = None,
         **pipeline_options: Any,
@@ -43,38 +48,42 @@ class PaddleOcrVlTextExtractor:
         self.min_box_area_ratio = min_box_area_ratio
 
         if text_detector is None or vl_pipeline is None:
-            _prepare_paddlex_dependency_checks_for_ocr()
+            paddlex_home = _resolve_paddlex_home(paddlex_home)
+            _configure_paddlex_environment(paddlex_home)
+            text_detector_model_dir = text_detector_model_dir or _resolve_required_paddlex_model_dir(
+                paddlex_home,
+                PP_OCR_V5_MOBILE_DET_MODEL,
+            )
+            layout_detection_model_dir = layout_detection_model_dir or _resolve_required_paddlex_model_dir(
+                paddlex_home,
+                PP_DOC_LAYOUT_V2_MODEL,
+            )
+            vl_rec_model_dir = vl_rec_model_dir or _resolve_required_paddlex_model_dir(
+                paddlex_home,
+                PADDLE_OCR_VL_MODEL_DIRNAME,
+            )
+
             PaddleOCRVL, TextDetection = import_module_symbols(
                 "paddleocr",
                 "PaddleOCRVL",
                 "TextDetection",
-                hidden_import_packages=OPTIONAL_PADDLEOCR_IMPORT_PROBES,
-                hidden_distribution_names=OPTIONAL_PADDLEOCR_DISTRIBUTIONS,
             )
-
-            # Check if HPI is available
-            hpi_available = False
-            try:
-                importlib.import_module("ultra_infer")
-                hpi_available = True
-            except ImportError:
-                pass
 
             if text_detector is None:
                 text_detector = TextDetection(
                     model_name=text_detector_model_name,
-                    enable_hpi=hpi_available,
+                    model_dir=str(text_detector_model_dir),
+                    device=device,
+                    enable_hpi=False,
                 )
             if vl_pipeline is None:
-                # Set enable_hpi if not present
-                pipeline_options.setdefault("enable_hpi", hpi_available)
-                # PaddleOCR-VL-0.9B does not support HPI/ONNX, so we force it to use transformers
-                # while allowing other sub-models (like layout detection) to use HPI.
-                if hpi_available:
-                    pipeline_options.setdefault("vl_rec_engine", "transformers")
-                
+                pipeline_options.setdefault("device", device)
+                pipeline_options.setdefault("enable_hpi", False)
                 vl_pipeline = PaddleOCRVL(
-                    pipeline_version=pipeline_version, **pipeline_options
+                    pipeline_version=pipeline_version,
+                    layout_detection_model_dir=str(layout_detection_model_dir),
+                    vl_rec_model_dir=str(vl_rec_model_dir),
+                    **pipeline_options,
                 )
 
         self.text_detector = text_detector
@@ -135,13 +144,16 @@ class Florence2Captioner:
         self.num_beams = num_beams
         self.use_cache = use_cache
         self.processor = AutoProcessor.from_pretrained(
-            model_name, trust_remote_code=True
+            model_name,
+            trust_remote_code=True,
+            local_files_only=_is_local_model_dir(model_name),
         )
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=self.torch_dtype,
             trust_remote_code=True,
             attn_implementation=attn_implementation,
+            local_files_only=_is_local_model_dir(model_name),
         ).to(self.device)
         self.model.eval()
 
@@ -208,17 +220,23 @@ class JapaneseTranslator:
 
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             self.model = ORTModelForCausalLM.from_pretrained(
-                model_name, provider=_get_ort_provider(self.device)
+                model_name,
+                provider=_get_ort_provider(self.device),
+                local_files_only=True,
             )
         else:
             AutoModelForCausalLM, AutoTokenizer = import_transformers_symbols(
                 "AutoModelForCausalLM",
                 "AutoTokenizer",
             )
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                local_files_only=_is_local_model_dir(model_name),
+            )
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 torch_dtype=self.torch_dtype,
+                local_files_only=_is_local_model_dir(model_name),
             ).to(self.device)
             self.model.eval()
 
@@ -274,6 +292,36 @@ def _get_ort_provider(device: str) -> str:
         # MPS is not well-supported in ORT yet, fallback to CPU or try CoreML
         return "CPUExecutionProvider"
     return "CPUExecutionProvider"
+
+
+def _configure_paddlex_environment(paddlex_home: Path) -> None:
+    resolved = str(paddlex_home.resolve())
+    os.environ["PADDLEX_HOME"] = resolved
+    os.environ["PADDLE_HOME"] = resolved
+    os.environ["PADDLE_PDX_HOME"] = resolved
+
+
+def _resolve_paddlex_home(paddlex_home: Path | None) -> Path:
+    if paddlex_home is not None:
+        return paddlex_home
+    configured = os.getenv("PADDLEX_HOME")
+    if configured:
+        return Path(configured)
+    return Path("models/paddlex")
+
+
+def _resolve_required_paddlex_model_dir(paddlex_home: Path, model_dirname: str) -> Path:
+    model_dir = paddlex_home / "official_models" / model_dirname
+    if not model_dir.is_dir():
+        raise FileNotFoundError(
+            f"Required PaddleX model directory does not exist: {model_dir}. "
+            "Run `scripts/prepare_models.py --output-dir models/` first."
+        )
+    return model_dir
+
+
+def _is_local_model_dir(model_name: str) -> bool:
+    return Path(model_name).is_dir()
 
 
 def _text_from_paddleocr_result(result: Any) -> str:

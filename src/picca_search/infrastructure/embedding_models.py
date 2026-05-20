@@ -24,14 +24,23 @@ class WaonSiglipEncoder:
             from optimum.onnxruntime import ORTModelForFeatureExtraction
             from transformers import AutoProcessor
 
-            self.processor = AutoProcessor.from_pretrained(model_name)
+            self.processor = AutoProcessor.from_pretrained(model_name, local_files_only=True)
             self.model = ORTModelForFeatureExtraction.from_pretrained(
-                model_name, provider=_get_ort_provider(self.device)
+                model_name,
+                provider=_get_ort_provider(self.device),
+                local_files_only=True,
             )
         else:
             AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
-            self.processor = AutoProcessor.from_pretrained(model_name)
-            self.model = AutoModel.from_pretrained(model_name).to(self.device)
+            local_files_only = model_path.is_dir()
+            self.processor = AutoProcessor.from_pretrained(
+                model_name,
+                local_files_only=local_files_only,
+            )
+            self.model = AutoModel.from_pretrained(
+                model_name,
+                local_files_only=local_files_only,
+            ).to(self.device)
             self.model.eval()
 
         self.text_max_length = int(self.model.config.text_config.max_position_embeddings)
@@ -108,17 +117,26 @@ class SpladeJapaneseSparseEncoder:
             from optimum.onnxruntime import ORTModelForMaskedLM
             from transformers import AutoTokenizer
 
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
             self.model = ORTModelForMaskedLM.from_pretrained(
-                model_name, provider=_get_ort_provider(self.device)
+                model_name,
+                provider=_get_ort_provider(self.device),
+                local_files_only=True,
             )
         else:
             AutoModelForMaskedLM, AutoTokenizer = import_transformers_symbols(
                 "AutoModelForMaskedLM",
                 "AutoTokenizer",
             )
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.model = AutoModelForMaskedLM.from_pretrained(model_name).to(self.device)
+            local_files_only = model_path.is_dir()
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                local_files_only=local_files_only,
+            )
+            self.model = AutoModelForMaskedLM.from_pretrained(
+                model_name,
+                local_files_only=local_files_only,
+            ).to(self.device)
             self.model.eval()
 
         self.max_length = _resolve_sparse_max_length(
