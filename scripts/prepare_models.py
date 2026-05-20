@@ -1,10 +1,26 @@
 #!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+# Force PADDLEX_HOME before ANY other imports
+def setup_paddlex_env():
+    # If explicitly passed via CLI, we'll handle it in main, 
+    # but for module-level initialization we need a default or a check.
+    # Here we default to models/paddlex relative to the script's project root.
+    project_root = Path(__file__).parent.parent.absolute()
+    paddlex_home = project_root / "models" / "paddlex"
+    paddlex_home.mkdir(parents=True, exist_ok=True)
+    os.environ["PADDLEX_HOME"] = str(paddlex_home)
+    os.environ["PADDLE_HOME"] = str(paddlex_home)
+    os.environ["PADDLE_PDX_HOME"] = str(paddlex_home)
+
+setup_paddlex_env()
+
 import argparse
 import logging
-import os
 import shutil
 import subprocess
-from pathlib import Path
 
 from huggingface_hub import snapshot_download
 from optimum.exporters.onnx import main_export
@@ -60,7 +76,7 @@ def export_paddle_to_onnx(model_dir: Path) -> None:
     logger.info(f"Converting Paddle model in {model_dir} to ONNX...")
     try:
         cmd = [
-            "python", "-m", "paddle2onnx.command",
+            sys.executable, "-m", "paddle2onnx.command",
             "--model_dir", str(model_dir),
             "--model_filename", model_file.name,
             "--params_filename", params_file.name,
@@ -90,12 +106,11 @@ def download_hf_model(model_id: str, output_dir: Path) -> None:
 
 def prepare_paddleocr(output_dir: Path) -> None:
     logger.info("Triggering PaddleOCR model downloads...")
-    paddlex_home = output_dir / "paddlex"
-    os.environ["PADDLEX_HOME"] = str(paddlex_home.absolute())
+    # Use the globally set PADDLEX_HOME or update it if output_dir is different
+    paddlex_home = Path(os.environ["PADDLEX_HOME"])
     
     try:
         # Install HPI dependencies if needed (for ONNX Runtime support)
-        # We try to install GPU version as requested, but fall back if it fails
         logger.info("Installing HPI dependencies...")
         try:
             subprocess.run(["paddlex", "--install", "hpi-gpu"], check=True, capture_output=True)
@@ -111,14 +126,25 @@ def prepare_paddleocr(output_dir: Path) -> None:
         logger.info(f"Initializing PaddleOCRVL pipeline...")
         PaddleOCRVL(pipeline_version="v1")
 
+        # Fallback: if initialization used ~/.paddlex despite env var, copy it to models/paddlex
+        default_paddlex_home = Path.home() / ".paddlex"
+        if default_paddlex_home.exists() and not (paddlex_home / "official_models").exists():
+            logger.info(f"Copying models from {default_paddlex_home} to {paddlex_home}...")
+            shutil.copytree(default_paddlex_home / "official_models", paddlex_home / "official_models", dirs_exist_ok=True)
+
         logger.info(f"PaddleOCR models prepared in {paddlex_home}")
 
         # Export all official Paddle models to ONNX
         official_models_dir = paddlex_home / "official_models"
         if official_models_dir.exists():
-            for model_path in official_models_dir.rglob("*"):
-                if model_path.is_dir():
-                    export_paddle_to_onnx(model_path)
+            # Process each model directory in official_models
+            for model_dir in official_models_dir.iterdir():
+                if model_dir.is_dir():
+                    export_paddle_to_onnx(model_dir)
+                    # Also check for subdirectories (like PaddleOCR-VL/PP-DocLayoutV2)
+                    for subdir in model_dir.iterdir():
+                        if subdir.is_dir():
+                            export_paddle_to_onnx(subdir)
 
         logger.info("Hint: To mount these in Docker, ensure ./models is mounted to /models and PADDLEX_HOME=/models/paddlex is set.")
     except ImportError:
@@ -136,6 +162,13 @@ def main():
     
     args.output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Update PADDLEX_HOME if a custom output-dir was provided
+    custom_paddlex_home = (args.output_dir / "paddlex").absolute()
+    os.environ["PADDLEX_HOME"] = str(custom_paddlex_home)
+    os.environ["PADDLE_HOME"] = str(custom_paddlex_home)
+    os.environ["PADDLE_PDX_HOME"] = str(custom_paddlex_home)
+    custom_paddlex_home.mkdir(parents=True, exist_ok=True)
+
     if not args.skip_onnx:
         # SigLIP and SPLADE are feature-extraction tasks
         export_hf_to_onnx(SIGLIP_MODEL, args.output_dir, task="feature-extraction")

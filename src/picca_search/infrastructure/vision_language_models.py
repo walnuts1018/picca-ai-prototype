@@ -68,6 +68,11 @@ class PaddleOcrVlTextExtractor:
             if vl_pipeline is None:
                 # Set enable_hpi if not present
                 pipeline_options.setdefault("enable_hpi", hpi_available)
+                # PaddleOCR-VL-0.9B does not support HPI/ONNX, so we force it to use transformers
+                # while allowing other sub-models (like layout detection) to use HPI.
+                if hpi_available:
+                    pipeline_options.setdefault("vl_rec_engine", "transformers")
+                
                 vl_pipeline = PaddleOCRVL(
                     pipeline_version=pipeline_version, **pipeline_options
                 )
