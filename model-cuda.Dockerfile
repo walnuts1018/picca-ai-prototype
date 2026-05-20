@@ -45,11 +45,13 @@ RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
     python3-venv \
     ca-certificates \
     libgl1 \
-    libglib2.0-0
+    libglib2.0-0 \
+    libgomp1
 
 COPY --from=builder /app /app
 
 ENV PATH="/app/.venv/bin:${PATH}" \
-    PYTHONPATH="/app/src"
+    PYTHONPATH="/app/src" \
+    PADDLEX_HOME="/models/paddlex"
 
 CMD ["python3", "scripts/run_dense_service.py"]
