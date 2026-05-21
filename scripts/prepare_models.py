@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 SIGLIP_MODEL = "llm-jp/waon-siglip2-base-patch16-256"
 SPLADE_MODEL = "bizreach-inc/light-splade-japanese-28M"
+SPLADE_ONNX_EXPORT_TASK = "fill-mask"
 CAT_TRANSLATE_MODEL = "cyberagent/CAT-Translate-0.8b"
 FLORENCE2_MODEL = "microsoft/Florence-2-base-ft"
 
@@ -98,7 +99,7 @@ def main() -> None:
 
     # SPLADE は ONNX で推論するためエクスポートが必要
     if not args.skip_onnx:
-        export_hf_to_onnx(SPLADE_MODEL, args.output_dir, task="feature-extraction")
+        export_hf_to_onnx(SPLADE_MODEL, args.output_dir, task=SPLADE_ONNX_EXPORT_TASK)
         export_hf_to_onnx(CAT_TRANSLATE_MODEL, args.output_dir, task="text-generation-with-past")
 
     if not args.skip_paddle:

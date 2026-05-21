@@ -16,6 +16,16 @@ WAON_SIGLIP_MODEL = "llm-jp/waon-siglip2-base-patch16-256"
 LIGHT_SPLADE_MODEL = "bizreach-inc/light-splade-japanese-28M"
 
 
+def validate_sparse_onnx_output_names(output_names: list[str]) -> None:
+    if "logits" in output_names:
+        return
+    raise ValueError(
+        "Invalid SPLADE ONNX model: expected output 'logits', "
+        f"but found {output_names}. Re-export with "
+        "`scripts/prepare_models.py --output-dir models/`."
+    )
+
+
 class WaonSiglipEncoder:
     def __init__(self, model_name: str = WAON_SIGLIP_MODEL, device: str | None = None) -> None:
         import torch
@@ -99,6 +109,7 @@ class SpladeJapaneseSparseEncoder:
         model_path = Path(model_name)
         if model_path.is_dir() and (model_path / "model.onnx").exists():
             self._uses_onnx = True
+            _validate_sparse_onnx_model_dir(model_path)
             from optimum.onnxruntime import ORTModelForMaskedLM
             from transformers import AutoTokenizer
 
@@ -229,3 +240,10 @@ def _resolve_sparse_max_length(
         return int(tokenizer_max_length)
 
     raise ValueError("Unable to determine max token length for sparse encoder")
+
+
+def _validate_sparse_onnx_model_dir(model_path: Path) -> None:
+    import onnx
+
+    model = onnx.load(str(model_path / "model.onnx"))
+    validate_sparse_onnx_output_names([output.name for output in model.graph.output])
