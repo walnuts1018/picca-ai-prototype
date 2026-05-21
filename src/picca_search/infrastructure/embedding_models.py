@@ -16,6 +16,18 @@ WAON_SIGLIP_MODEL = "llm-jp/waon-siglip2-base-patch16-256"
 LIGHT_SPLADE_MODEL = "bizreach-inc/light-splade-japanese-28M"
 
 
+def resolve_transformers_model_source(model_name: str) -> tuple[str, bool]:
+    model_path = Path(model_name)
+    if model_path.is_absolute() or model_name.startswith(("./", "../")) or model_path.exists():
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Local model path not found: {model_name}. "
+                "Run `scripts/prepare_models.py --output-dir models/` first."
+            )
+        return (str(model_path), True)
+    return (model_name, False)
+
+
 def validate_sparse_onnx_output_names(output_names: list[str]) -> None:
     if "logits" in output_names:
         return
@@ -34,15 +46,14 @@ class WaonSiglipEncoder:
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
 
         AutoModel, AutoProcessor = import_transformers_symbols("AutoModel", "AutoProcessor")
-        model_path = Path(model_name)
-        local_files_only = model_path.is_dir()
+        model_source, local_files_only = resolve_transformers_model_source(model_name)
         self.processor = AutoProcessor.from_pretrained(
-            model_name,
+            model_source,
             local_files_only=local_files_only,
             **transformers_pretrained_kwargs(prefer_slow=True),
         )
         self.model = AutoModel.from_pretrained(
-            model_name,
+            model_source,
             local_files_only=local_files_only,
         ).to(self.device)
         self.model.eval()
@@ -106,7 +117,8 @@ class SpladeJapaneseSparseEncoder:
         self.device = device or ("mps" if torch.backends.mps.is_available() else "cpu")
         self.top_k = top_k
 
-        model_path = Path(model_name)
+        model_source, local_files_only = resolve_transformers_model_source(model_name)
+        model_path = Path(model_source)
         if model_path.is_dir() and (model_path / "model.onnx").exists():
             self._uses_onnx = True
             _validate_sparse_onnx_model_dir(model_path)
@@ -114,12 +126,12 @@ class SpladeJapaneseSparseEncoder:
             from transformers import AutoTokenizer
 
             self.tokenizer = AutoTokenizer.from_pretrained(
-                model_name,
+                model_source,
                 local_files_only=True,
                 **transformers_pretrained_kwargs(prefer_slow=False),
             )
             self.model = ORTModelForMaskedLM.from_pretrained(
-                model_name,
+                model_source,
                 provider=ort_provider_for_device(
                     self.device,
                     require_accelerator=self.device == "cuda",
@@ -132,14 +144,13 @@ class SpladeJapaneseSparseEncoder:
                 "AutoModelForMaskedLM",
                 "AutoTokenizer",
             )
-            local_files_only = model_path.is_dir()
             self.tokenizer = AutoTokenizer.from_pretrained(
-                model_name,
+                model_source,
                 local_files_only=local_files_only,
                 **transformers_pretrained_kwargs(prefer_slow=False),
             )
             self.model = AutoModelForMaskedLM.from_pretrained(
-                model_name,
+                model_source,
                 local_files_only=local_files_only,
             ).to(self.device)
             self.model.eval()
