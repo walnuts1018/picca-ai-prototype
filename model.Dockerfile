@@ -20,7 +20,11 @@ COPY src /app/src
 COPY scripts /app/scripts
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --group vision
+    uv sync --no-dev --group vision && \
+    # torch 2.4.x と onnxruntime 1.26.x の組み合わせでは
+    # import 時に torch.int4 参照で落ちるため、CPU runtime も固定する。
+    uv pip uninstall -y onnxruntime && \
+    uv pip install --no-deps onnxruntime==1.20.1
 
 FROM python:3.12-slim AS runtime
 
